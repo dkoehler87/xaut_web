@@ -64,21 +64,22 @@ if refresh:
 
 try:
     with st.spinner("Loading data..."):
-        cex_df, dex_df, usdt_df, btc_df, final_df = load(api_key)
+        cex_df, dex_df, usdt_df, btc_df, usd_df, final_df = load(api_key)
 except Exception as e:
     st.error("App crashed while loading data. Here is the exception:")
     st.exception(e)
     st.stop()
 
 
-tabs = st.tabs(["ALL","CEX", "DEX", "USDT", "BTC"])
+tabs = st.tabs(["ALL","CEX", "DEX", "USDT", "BTC", "USD"])
 
 tab_map = {
     "ALL": final_df,
     "CEX": cex_df,
     "DEX": dex_df,
     "USDT": usdt_df,
-    "BTC": btc_df
+    "BTC": btc_df,
+    "USD": usd_df
 }
 
 def fmt_usd(x: float) -> str:
@@ -272,6 +273,7 @@ for tab, (name, df) in zip(tabs, tab_map.items()):
             top_n=10,
             title=f"{name} Market Share by Venue"
         )
+
 
 
 
