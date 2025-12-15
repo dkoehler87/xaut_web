@@ -71,16 +71,21 @@ except Exception as e:
     st.stop()
 
 
-tabs = st.tabs(["CEX", "DEX", "USDT", "BTC", "ALL"])
+tabs = st.tabs(["ALL","CEX", "DEX", "USDT", "BTC"])
 
 tab_map = {
+    "ALL": final_df,
     "CEX": cex_df,
     "DEX": dex_df,
     "USDT": usdt_df,
-    "BTC": btc_df,
-    "ALL": final_df,
+    "BTC": btc_df
 }
 
+def fmt_usd(x: float) -> str:
+    try:
+        return f"${x:,.0f}"
+    except Exception:
+        return "$0"
 
 def apply_quick_filters(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
@@ -204,13 +209,26 @@ for tab, (name, df) in zip(tabs, tab_map.items()):
         filtered["market_share"] = (filtered["usd_volume"] / total_usd) if total_usd and total_usd > 0 else 0.0
 
 
-        c1, c2, c3 = st.columns([1, 1, 2])
+        # Make sure usd_volume is numeric
+        df_usd = df.copy()
+        df_usd["usd_volume"] = pd.to_numeric(df_usd["usd_volume"], errors="coerce").fillna(0)
+        
+        filtered_usd = filtered.copy()
+        filtered_usd["usd_volume"] = pd.to_numeric(filtered_usd["usd_volume"], errors="coerce").fillna(0)
+        
+        total_usd_volume = float(df_usd["usd_volume"].sum())
+        filtered_usd_volume = float(filtered_usd["usd_volume"].sum())
+        
+        c1, c2, c3, c4 = st.columns([1, 1, 1.4, 2])
         with c1:
             st.metric("Rows (filtered)", f"{len(filtered):,}")
         with c2:
             st.metric("Rows (total)", f"{len(df):,}")
         with c3:
-            st.caption("Sorting: click column headers. Use the sidebar for filters/search.")
+            st.metric("USD Volume (filtered)", fmt_usd(filtered_usd_volume))
+        with c4:
+            st.metric("USD Volume (total)", fmt_usd(total_usd_volume))
+
 
         formatted = format_numeric_columns(filtered)
         
@@ -254,6 +272,7 @@ for tab, (name, df) in zip(tabs, tab_map.items()):
             top_n=10,
             title=f"{name} Market Share by Venue"
         )
+
 
 
 
