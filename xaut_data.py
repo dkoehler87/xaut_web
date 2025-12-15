@@ -118,8 +118,8 @@ def build_xaut_dataframes(coingecko_api_key: str = "", coin_id: str = "tether-go
             "usd_volume",
             "bid_ask_spr",
             "tob_spread_bps",
-            "ask_depth_200",
             "bid_depth_200",
+            "ask_depth_200",
             "trust_score",
             "timestamp",
             "is_anomaly",
@@ -170,8 +170,8 @@ def build_xaut_dataframes(coingecko_api_key: str = "", coin_id: str = "tether-go
             "volume",
             "usd_volume",
             "tob_spread_bps",
-            "ask_depth_200",
             "bid_depth_200",
+            "ask_depth_200",
             "trust_score",
             "venue_type",
         ]
@@ -197,4 +197,5 @@ def build_xaut_dataframes(coingecko_api_key: str = "", coin_id: str = "tether-go
 
 
     return cex_df, dex_df, usdt_df, btc_df, usd_df, all_df
+
 
