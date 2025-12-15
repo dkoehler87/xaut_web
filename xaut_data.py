@@ -183,13 +183,18 @@ def build_xaut_dataframes(coingecko_api_key: str = "", coin_id: str = "tether-go
     dex_df = final_df[final_df["venue_type"] == "dex"].copy()
     usdt_df = cex_df[cex_df["target"] == "USDT"].copy()
     btc_df = cex_df[(cex_df["base"] == "BTC") | (cex_df["target"] == "BTC")].copy()
+    usd_df = cex_df[cex_df['target']=='USD'].copy()
+
     
     cex_df = add_market_share(cex_df)
     dex_df = add_market_share(dex_df)
     usdt_df = add_market_share(usdt_df)
     btc_df = add_market_share(btc_df)
+    usd_df = add_market_share(usd_df)
+
     
     all_df = add_market_share(final_df)
 
 
-    return cex_df, dex_df, usdt_df, btc_df, all_df
+    return cex_df, dex_df, usdt_df, btc_df, usd_df, all_df
+
