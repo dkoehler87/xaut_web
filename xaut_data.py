@@ -176,14 +176,15 @@ def build_xaut_dataframes(coingecko_api_key: str = "", coin_id: str = "tether-go
             "venue_type",
         ]
     ].copy()
-    
+
+    final_df.columns = ['Timestamp', 'Venue', 'Trading Pair', 'Base', 'Quote', 'Last', 'Volume', 'Volume (USD)', 'TOB Spread (bps)', 'Bid Depth (200 bps)', 'Ask Depth (200 bps)', 'Trust Score', 'Venue Type']
 
     # Split into your 4 outputs
-    cex_df = final_df[final_df["venue_type"] == "cex"].copy()
-    dex_df = final_df[final_df["venue_type"] == "dex"].copy()
-    usdt_df = cex_df[cex_df["target"] == "USDT"].copy()
-    btc_df = cex_df[(cex_df["base"] == "BTC") | (cex_df["target"] == "BTC")].copy()
-    usd_df = cex_df[cex_df['target']=='USD'].copy()
+    cex_df = final_df[final_df["Venue Type"] == "cex"].copy()
+    dex_df = final_df[final_df["Venue Type"] == "dex"].copy()
+    usdt_df = cex_df[cex_df["Quote"] == "USDT"].copy()
+    btc_df = cex_df[(cex_df["Base"] == "BTC") | (cex_df["Quote"] == "BTC")].copy()
+    usd_df = cex_df[cex_df['Quote']=='USD'].copy()
 
     
     cex_df = add_market_share(cex_df)
@@ -197,5 +198,6 @@ def build_xaut_dataframes(coingecko_api_key: str = "", coin_id: str = "tether-go
 
 
     return cex_df, dex_df, usdt_df, btc_df, usd_df, all_df
+
 
 
