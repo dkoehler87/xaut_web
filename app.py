@@ -39,7 +39,7 @@ PCT_0_COLS = ["Market Share"]
 
 with st.sidebar:
     st.header("Settings")
-    api_key = st.text_input("CoinGecko API key (demo key ok)", value="", type="password")
+    api_key = st.text_input("CoinGecko API Key", value="", type="password")
     st.caption("Leave blank if you don’t need a key for your usage tier.")
     refresh = st.button("Refresh data")
     st.markdown("---")
@@ -273,6 +273,7 @@ for tab, (name, df) in zip(tabs, tab_map.items()):
             top_n=10,
             title=f"{name} Market Share by Venue"
         )
+
 
 
 
