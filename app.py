@@ -12,7 +12,7 @@ import plotly.express as px
 
 
 st.set_page_config(page_title="XAUT Market Viewer", layout="wide")
-st.title("XAUT (Tether Gold) – Interactive Market Data Viewer")
+st.title("XAUT (Tether Gold) – Market Data Viewer")
 
 
 DECIMAL_2_COLS = [
@@ -92,20 +92,20 @@ def apply_quick_filters(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
 
     if tp_search.strip():
-        out = out[out["trading_pair"].astype(str).str.contains(tp_search, case=False, na=False)]
+        out = out[out["Trading Pair"].astype(str).str.contains(tp_search, case=False, na=False)]
 
     if venue_search.strip():
-        out = out[out["venue"].astype(str).str.contains(venue_search, case=False, na=False)]
+        out = out[out["Venue"].astype(str).str.contains(venue_search, case=False, na=False)]
 
     if venue_type_filter:
-        out = out[out["venue_type"].astype(str).isin(venue_type_filter)]
+        out = out[out["Venue Type"].astype(str).isin(venue_type_filter)]
 
     # numeric filters
-    out["usd_volume"] = pd.to_numeric(out["usd_volume"], errors="coerce")
-    out["tob_spread_bps"] = pd.to_numeric(out["tob_spread_bps"], errors="coerce")
+    out["Volume (USD)"] = pd.to_numeric(out["Volume (USD)"], errors="coerce")
+    out["TOB Spread (bps)"] = pd.to_numeric(out["TOB Spread (bps)"], errors="coerce")
 
-    out = out[out["usd_volume"].fillna(0) >= float(min_usd_vol)]
-    out = out[out["tob_spread_bps"].fillna(0) <= float(max_spread)]
+    out = out[out["Volume (USD)"].fillna(0) >= float(min_usd_vol)]
+    out = out[out["TOB Spread (bps)"].fillna(0) <= float(max_spread)]
 
     return out
 
@@ -140,7 +140,7 @@ def trust_score_style(val):
 
 def render_market_share_pie_plotly(
     df: pd.DataFrame,
-    label_col: str = "venue",
+    label_col: str = "Venue",
     top_n: int = 10,
     title: str = "Market Share"
 ):
@@ -155,10 +155,10 @@ def render_market_share_pie_plotly(
     plot_df = df.copy()
 
     plot_df[label_col] = plot_df[label_col].astype(str)
-    plot_df["market_share"] = pd.to_numeric(plot_df["market_share"], errors="coerce").fillna(0)
+    plot_df["Market Share"] = pd.to_numeric(plot_df["Market Share"], errors="coerce").fillna(0)
 
     agg = (
-        plot_df.groupby(label_col, dropna=False)["market_share"]
+        plot_df.groupby(label_col, dropna=False)["Market Share"]
         .sum()
         .sort_values(ascending=False)
     )
@@ -173,12 +173,12 @@ def render_market_share_pie_plotly(
         agg = pd.concat([top, pd.Series({"Other": other})])
 
     pie_df = agg.reset_index()
-    pie_df.columns = [label_col, "market_share"]
+    pie_df.columns = [label_col, "Market Share"]
 
     fig = px.pie(
         pie_df,
         names=label_col,
-        values="market_share",
+        values="Market Share",
         title=title,
         hole=0.35,  # donut style
     )
@@ -205,20 +205,20 @@ for tab, (name, df) in zip(tabs, tab_map.items()):
         
         # Recompute market share based on *filtered view* so the chart & column match what’s displayed
         filtered = filtered.copy()
-        filtered["usd_volume"] = pd.to_numeric(filtered["usd_volume"], errors="coerce")
-        total_usd = filtered["usd_volume"].sum(skipna=True)
-        filtered["market_share"] = (filtered["usd_volume"] / total_usd) if total_usd and total_usd > 0 else 0.0
+        filtered["Volume (USD)"] = pd.to_numeric(filtered["Volume (USD)"], errors="coerce")
+        total_usd = filtered["Volume (USD)"].sum(skipna=True)
+        filtered["Market Share"] = (filtered["Volume (USD)"] / total_usd) if total_usd and total_usd > 0 else 0.0
 
 
         # Make sure usd_volume is numeric
         df_usd = df.copy()
-        df_usd["usd_volume"] = pd.to_numeric(df_usd["usd_volume"], errors="coerce").fillna(0)
+        df_usd["Volume (USD)"] = pd.to_numeric(df_usd["Volume (USD)"], errors="coerce").fillna(0)
         
         filtered_usd = filtered.copy()
-        filtered_usd["usd_volume"] = pd.to_numeric(filtered_usd["usd_volume"], errors="coerce").fillna(0)
+        filtered_usd["Volume (USD)"] = pd.to_numeric(filtered_usd["Volume (USD)"], errors="coerce").fillna(0)
         
-        total_usd_volume = float(df_usd["usd_volume"].sum())
-        filtered_usd_volume = float(filtered_usd["usd_volume"].sum())
+        total_usd_volume = float(df_usd["Volume (USD)"].sum())
+        filtered_usd_volume = float(filtered_usd["Volume (USD)"].sum())
         
         c1, c2, c3, c4 = st.columns([1, 1, 1.4, 2])
         with c1:
@@ -250,7 +250,7 @@ for tab, (name, df) in zip(tabs, tab_map.items()):
         styler = (
             formatted.style
             .format(format_dict)
-            .applymap(trust_score_style, subset=["trust_score"])
+            .applymap(trust_score_style, subset=["Trust Score"])
         )
         
         st.dataframe(
@@ -269,10 +269,11 @@ for tab, (name, df) in zip(tabs, tab_map.items()):
         st.markdown("### Market Share (by venue)")
         render_market_share_pie_plotly(
             filtered,
-            label_col="venue",
+            label_col="Venue",
             top_n=10,
             title=f"{name} Market Share by Venue"
         )
+
 
 
 
