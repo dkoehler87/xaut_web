@@ -148,7 +148,7 @@ def render_market_share_pie_plotly(
         st.info("No data for market share chart.")
         return
 
-    if "market_share" not in df.columns:
+    if "Market Share" not in df.columns:
         st.info("market_share column not found.")
         return
 
@@ -273,6 +273,7 @@ for tab, (name, df) in zip(tabs, tab_map.items()):
             top_n=10,
             title=f"{name} Market Share by Venue"
         )
+
 
 
 
