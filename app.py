@@ -16,15 +16,15 @@ st.title("XAUT (Tether Gold) – Interactive Market Data Viewer")
 
 
 DECIMAL_2_COLS = [
-    "last",
-    "tob_spread_bps",
+    "Last",
+    "TOB Spread (bps)",
 ]
 
 DECIMAL_0_COLS = [
-    "volume",
-    "usd_volume",
-    "ask_depth_200",
-    "bid_depth_200",
+    "Volume",
+    "Volume (USD)",
+    "Bid Depth (200 bps)",
+    "Ask Depth (200 bps)",
 ]
 
 TRUST_COLORS = {
@@ -33,7 +33,7 @@ TRUST_COLORS = {
     "red": "#d93025",     # strong red
 }
 
-PCT_0_COLS = ["market_share"]
+PCT_0_COLS = ["Market Share"]
 
 
 
@@ -273,6 +273,7 @@ for tab, (name, df) in zip(tabs, tab_map.items()):
             top_n=10,
             title=f"{name} Market Share by Venue"
         )
+
 
 
 
