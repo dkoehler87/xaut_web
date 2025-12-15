@@ -55,15 +55,15 @@ def grab_icrypex_volume():
     return pd.DataFrame(resp.json())
 
 
-def add_market_share(df: pd.DataFrame, volume_col: str = "usd_volume") -> pd.DataFrame:
+def add_market_share(df: pd.DataFrame, volume_col: str = "Volume (USD)") -> pd.DataFrame:
     out = df.copy()
     out[volume_col] = pd.to_numeric(out[volume_col], errors="coerce")
     total = out[volume_col].sum(skipna=True)
 
     if total and total > 0:
-        out["market_share"] = out[volume_col] / total
+        out["Market Share"] = out[volume_col] / total
     else:
-        out["market_share"] = 0.0
+        out["Market Share"] = 0.0
 
     return out
 
@@ -198,6 +198,7 @@ def build_xaut_dataframes(coingecko_api_key: str = "", coin_id: str = "tether-go
 
 
     return cex_df, dex_df, usdt_df, btc_df, usd_df, all_df
+
 
 
 
