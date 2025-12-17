@@ -8,6 +8,7 @@ Created on Sun Dec 14 10:33:24 2025
 import pandas as pd
 import streamlit as st
 from xaut_data import build_xaut_dataframes
+from xaut0_data import build_xaut0_dataframes
 import plotly.express as px
 
 
@@ -57,7 +58,10 @@ with st.sidebar:
 @st.cache_data(ttl=60, show_spinner=False)
 def load(api_key: str):
     return build_xaut_dataframes(coingecko_api_key=api_key)
-
+    
+@st.cache_data(ttl=60, show_spinner=False)
+def load2(api_key: str):
+    return build_xaut0_dataframes(coingecko_api_key=api_key)
 
 if refresh:
     st.cache_data.clear()
@@ -65,13 +69,14 @@ if refresh:
 try:
     with st.spinner("Loading data..."):
         cex_df, dex_df, usdt_df, btc_df, usd_df, final_df = load(api_key)
+        xaut0_df = load2(api_key)
 except Exception as e:
     st.error("App crashed while loading data. Here is the exception:")
     st.exception(e)
     st.stop()
 
 
-tabs = st.tabs(["ALL","CEX", "DEX", "USDT", "BTC", "USD"])
+tabs = st.tabs(["ALL","CEX", "DEX", "USDT", "BTC", "USD", "XAUT0"])
 
 tab_map = {
     "ALL": final_df,
@@ -79,7 +84,8 @@ tab_map = {
     "DEX": dex_df,
     "USDT": usdt_df,
     "BTC": btc_df,
-    "USD": usd_df
+    "USD": usd_df,
+    "XAUT0": xaut0_df
 }
 
 def fmt_usd(x: float) -> str:
@@ -273,6 +279,7 @@ for tab, (name, df) in zip(tabs, tab_map.items()):
             top_n=10,
             title=f"{name} Market Share by Venue"
         )
+
 
 
 
