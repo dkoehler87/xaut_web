@@ -29,6 +29,9 @@ def top_nav():
 top_nav()
 st.divider()
 
+nav.run()
+st.stop()
+
 st.title("XAUT (Tether Gold) – Market Data Viewer")
 
 DECIMAL_2_COLS = [
@@ -294,6 +297,7 @@ for tab, (name, df) in zip(tabs, tab_map.items()):
             top_n=10,
             title=f"{name} Market Share by Venue"
         )
+
 
 
 
