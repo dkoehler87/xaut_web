@@ -19,14 +19,13 @@ try:
 except ImportError:
     st_autorefresh = None
 
+
 def top_nav():
     c1, c2, c3, c4 = st.columns([1,1,1,6])
     with c1:
-        st.page_link("app.py", label="Home")
+        st.page_link("app.py", label="Market Data Viewer")
     with c2:
-        st.page_link("pages/1_Liquidity_Monitor.py", label="Liquidity Monitor")
-    with c3:
-        st.page_link("pages/2_Other_Page.py", label="Other")
+        st.page_link("pages/1_xaut_liquidity_monitor.py", label="Liquidity Monitor")
     # c4 is just spacer
 
 top_nav()
