@@ -15,6 +15,19 @@ import plotly.express as px
 st.set_page_config(page_title="XAUT Market Viewer", layout="wide")
 st.title("XAUT (Tether Gold) – Market Data Viewer")
 
+def top_nav():
+    c1, c2, c3, c4 = st.columns([1,1,1,6])
+    with c1:
+        st.page_link("app.py", label="Home")
+    with c2:
+        st.page_link("pages/1_Liquidity_Monitor.py", label="Liquidity Monitor")
+    with c3:
+        st.page_link("pages/2_Other_Page.py", label="Other")
+    # c4 is just spacer
+
+top_nav()
+st.divider()
+
 
 DECIMAL_2_COLS = [
     "Last",
@@ -279,6 +292,7 @@ for tab, (name, df) in zip(tabs, tab_map.items()):
             top_n=10,
             title=f"{name} Market Share by Venue"
         )
+
 
 
 
