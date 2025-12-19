@@ -273,7 +273,7 @@ for tab, (name, df) in zip(tabs, tab_map.items()):
         styler = (
             formatted.style
             .format(format_dict)
-            .applymap(trust_score_style, subset=["Trust Score"])
+            .map(trust_score_style, subset=["Trust Score"])
         )
         
         st.dataframe(
