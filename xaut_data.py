@@ -48,13 +48,6 @@ def fetch_all_tickers(coin_id: str, headers: dict, **extra_params):
     }
 
 
-def grab_icrypex_volume():
-    url = "https://api.icrypex.com/v1/tickers"
-    resp = requests.get(url, timeout=30)
-    resp.raise_for_status()
-    return pd.DataFrame(resp.json())
-
-
 def add_market_share(df: pd.DataFrame, volume_col: str = "Volume (USD)") -> pd.DataFrame:
     out = df.copy()
     out[volume_col] = pd.to_numeric(out[volume_col], errors="coerce")
@@ -131,16 +124,22 @@ def build_xaut_dataframes(coingecko_api_key: str = "", coin_id: str = "tether-go
     # Map venue type
     ticker_df["venue_type"] = ticker_df["venue"].map(dex_dict).fillna("cex")
 
-    # Fix Icrypex volume
-    icrypex_df = grab_icrypex_volume()
-    icrypex_volume = float(
-        icrypex_df.loc[icrypex_df["symbol"] == "XAUTUSDT", "volume"].iloc[0]
-    )
-    ticker_df.loc[ticker_df["venue_id"] == "icrypex", "volume"] = icrypex_volume
-    ticker_df.loc[ticker_df["venue_id"] == "icrypex", "usd_volume"] = (
-        icrypex_volume
-        * ticker_df.loc[ticker_df["venue_id"] == "icrypex", "last"]
-    )
+    #Fix Icrypex duplication
+    # --- Remove duplicated icrypex XAUT/USDT rows (CoinGecko bug) ---
+    mask = (ticker_df["venue_id"] == "icrypex") & (ticker_df["trading_pair"] == "XAUT/USDT")
+    
+    if mask.sum() > 1:
+        icr = ticker_df[mask].copy()
+        rest = ticker_df[~mask].copy()
+    
+        # Keep the row with the LOWER usd_volume (the higher one is incorrect)
+        icr["usd_volume"] = pd.to_numeric(icr["usd_volume"], errors="coerce")
+        icr = (
+            icr.sort_values("usd_volume", ascending=True)
+               .head(1)
+        )
+    
+        ticker_df = pd.concat([rest, icr], ignore_index=True)
 
     # Fix Coinup volume (incorrect) - use 'volume' field
     ticker_df.loc[ticker_df["venue_id"] == "coinup", "usd_volume"] = (
@@ -198,6 +197,7 @@ def build_xaut_dataframes(coingecko_api_key: str = "", coin_id: str = "tether-go
 
 
     return cex_df, dex_df, usdt_df, btc_df, usd_df, all_df
+
 
 
 
