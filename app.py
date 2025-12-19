@@ -295,7 +295,7 @@ for tab, (name, df) in zip(tabs, tab_map.items()):
             title=f"{name} Market Share by Venue"
         )
 
-nav.run()
+
 
 
 
