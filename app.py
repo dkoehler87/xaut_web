@@ -15,14 +15,19 @@ import plotly.express as px
 st.set_page_config(page_title="XAUT Market Viewer", layout="wide")
 st.title("XAUT (Tether Gold) – Market Data Viewer")
 
-def top_nav():
-    c1, c2, c3, c4 = st.columns([1,1,1,6])
-    with c1:
-        st.page_link("app.py", label="Market Data Viewer")
-    with c2:
-        st.page_link("pages/1_xaut_liquidity_monitor.py", label="Liquidity Monitor")
-    # c4 is just spacer
 
+home = st.Page("app.py", title="Market Data Viewer", url_path="")  # root
+liq  = st.Page("pages/1_xaut_liquidity_monitor.py", title="Liquidity Monitor", url_path="liquidity-monitor")
+
+nav = st.navigation([home, liq])   # you can add more pages here
+
+
+def top_nav():
+    c1, c2, c3 = st.columns([1, 1, 6])
+    with c1:
+        st.page_link(home, label="Market Data Viewer")
+    with c2:
+        st.page_link(liq, label="Liquidity Monitor")
 top_nav()
 st.divider()
 
@@ -291,6 +296,7 @@ for tab, (name, df) in zip(tabs, tab_map.items()):
             title=f"{name} Market Share by Venue"
         )
 
+nav.run()
 
 
 
