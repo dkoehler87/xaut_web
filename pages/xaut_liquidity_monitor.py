@@ -72,7 +72,17 @@ def fetch_orderbook_snapshot(ccxt_id: str, symbol: str, limit: int):
     Uses unified symbol. Does NOT call load_markets().
     """
     ex = get_exchange(ccxt_id)
-    ob = ex.fetch_order_book(symbol, limit=limit)
+    if ccxt_id == "bitfinex" and limit and limit > 100:
+        limit = 100
+
+    try:
+        ob = ex.fetch_order_book(symbol, limit=limit)
+        
+    except ccxt.BadSymbol:
+        # fallback: load markets then retry
+        ex.load_markets()
+        ob = ex.fetch_order_book(symbol, limit=limit)
+        
     return {
         "timestamp": ob.get("timestamp") or int(time.time() * 1000),
         "bids": ob.get("bids") or [],
