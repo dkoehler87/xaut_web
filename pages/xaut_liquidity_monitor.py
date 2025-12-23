@@ -36,7 +36,9 @@ except ImportError:
 
 @st.cache_data
 def load_venues():
-    path = Path(__file__).parent / "venues.json"
+    root = Path(__file__).resolve().parents[1]  # go up from pages/
+    path = root / "venues.json"
+
     with open(path, "r") as f:
         return json.load(f)
 
