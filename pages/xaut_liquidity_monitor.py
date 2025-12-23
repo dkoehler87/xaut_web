@@ -339,7 +339,7 @@ def liquidity_page():
         default=list(VENUES.keys()),
     )
     refresh_seconds = st.sidebar.slider("Refresh interval (seconds)", 2, 60, 20, 5)
-    orderbook_limit = st.sidebar.slider("Orderbook levels (per side)", 10, 400, 200, 50)
+    orderbook_limit = st.sidebar.slider("Orderbook levels (per side)", 0, 400, 300, 50)
     charts_per_row = st.sidebar.slider("Charts per row", 1, 4, 3, 1)
 
     st.sidebar.header("Depth bands")
