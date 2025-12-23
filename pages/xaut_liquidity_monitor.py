@@ -14,6 +14,8 @@ import pandas as pd
 import streamlit as st
 import ccxt
 import altair as alt
+import json
+from pathlib import Path
 
 try:
     from streamlit_autorefresh import st_autorefresh
@@ -31,53 +33,14 @@ except ImportError:
 # Config: include BOTH symbol + id (id kept for reference, not displayed)
 # NOTE: ccxt unified calls (fetch_order_book) should use `symbol`.
 # ------------------------------------------------------------
-VENUES = {
-    "MEXC": {
-        "ccxt_id": "mexc",
-        "pairs": [
-            {"symbol": "XAUT/USDT", "id": "XAUTUSDT"},
-        ],
-    },
-    "OKX": {
-        "ccxt_id": "okx",
-        "pairs": [
-            {"symbol": "XAUT/USDT", "id": "XAUT-USDT"},
-        ],
-    },
-    "Gate.io": {
-        "ccxt_id": "gate",
-        "pairs": [
-            {"symbol": "XAUT/USDT", "id": "XAUT_USDT"},
-        ],
-    },
-    "Crypto.com": {
-        "ccxt_id": "cryptocom",
-        "pairs": [
-            {"symbol": "XAUT/USD", "id": "XAUT_USD"},
-        ],
-    },
-    "Kraken": {
-        "ccxt_id": "kraken",
-        "pairs": [
-            {"symbol": "XAUT/USD", "id": "XAUTUSD"},
-            {"symbol": "XAUT/USDT", "id": "XAUTUSDT"},
-        ],
-    },
-    "Hyperliquid": {
-        "ccxt_id": "hyperliquid",
-        "pairs": [
-            {"symbol": "XAUT/USDT", "id": "@209"},
-        ],
-    },
-    "Bitfinex": {
-        "ccxt_id": "bitfinex",
-        "pairs": [
-            {"symbol": "XAUT/USDT", "id": "tXAUT:USD"},
-            {"symbol": "XAUT/USD", "id": "tXAUT:USDT"},
-        ],
-    },
-}
 
+@st.cache_data
+def load_venues():
+    path = Path(__file__).parent / "venues.json"
+    with open(path, "r") as f:
+        return json.load(f)
+
+VENUES = load_venues()
 
 # ------------------------------------------------------------
 # CCXT init (cached)
