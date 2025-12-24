@@ -33,7 +33,8 @@
   "Hyperliquid": {
     "ccxt_id": "hyperliquid",
     "pairs": [
-      { "symbol": "XAUT/USDT", "id": "@209" }
+      { "symbol": "XAUT/USDT", "id": "@209" },
+      { "symbol": "XAUT/USDC", "id": "@182" }
     ]
   },
   "Bitfinex": {
@@ -44,3 +45,4 @@
     ]
   }
 }
+
