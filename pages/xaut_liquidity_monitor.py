@@ -420,7 +420,7 @@ def liquidity_page():
     charts_per_row = st.sidebar.slider("Charts per row", 1, 4, 3, 1)
 
     st.sidebar.header("Depth bands")
-    depth_bps_levels = parse_bps_list(st.sidebar.text_input("Depth bands (bps)", "25,50,100"))
+    depth_bps_levels = parse_bps_list(st.sidebar.text_input("Depth bands (bps)", "50,100,200"))
     depth_unit = st.sidebar.selectbox(
         "Depth unit",
         ["quote", "base"],
@@ -455,10 +455,10 @@ def liquidity_page():
     # ----------------------------
     depth_anchor = st.radio(
         "Depth calculation anchor",
-        options=["BBO", "Mid"],
+        options=["Mid", "BBO"],
         index=0,
         horizontal=True,
-        help="BBO = Depth bands from best bid/offer. Mid = symmetric bands around mid price.",
+        help="Mid = symmetric bands around mid price. BBO = Depth bands from best bid/offer.",
     )
 
     # ----------------------------
@@ -812,3 +812,4 @@ def liquidity_page():
 
 if __name__ == '__main__':
     liquidity_page()
+
