@@ -12,17 +12,56 @@ from xaut0_data import build_xaut0_dataframes
 import plotly.express as px
 import os
 
-def get_coingecko_api_key() -> str:
-    # 1) Streamlit Cloud: set in Secrets as COINGECKO_API_KEY
+def _get_secret(name: str) -> str:
     try:
-        key = st.secrets.get("COINGECKO_API_KEY", "")
-        if key:
-            return str(key)
+        val = st.secrets.get(name, "")
+        return str(val).strip() if val else ""
     except Exception:
-        pass
+        return ""
 
-    # 2) Local dev: set env var COINGECKO_API_KEY
-    return os.getenv("COINGECKO_API_KEY", "") or ""
+def _get_env(name: str) -> str:
+    return (os.getenv(name, "") or "").strip()
+
+def get_coingecko_api_keys() -> list[str]:
+    """
+    Returns a list of available CoinGecko API keys (non-empty), in priority order.
+    Supports:
+      - COINGECKO_API_KEY_1, COINGECKO_API_KEY_2 (recommended)
+      - COINGECKO_API_KEY (legacy fallback)
+    Works both in Streamlit Secrets and local env vars.
+    """
+    keys = []
+
+    # Preferred: 2 keys
+    for kname in ("COINGECKO_API_KEY_1", "COINGECKO_API_KEY_2"):
+        k = _get_secret(kname) or _get_env(kname)
+        if k:
+            keys.append(k)
+
+    # Deduplicate while preserving order
+    deduped = []
+    seen = set()
+    for k in keys:
+        if k not in seen:
+            deduped.append(k)
+            seen.add(k)
+
+    return deduped
+
+def pick_coingecko_key(keys: list[str], counter_name: str) -> str:
+    """
+    Round-robin selection stored in session_state.
+    counter_name lets you have separate rotation streams (e.g., for load vs load2).
+    """
+    if not keys:
+        return ""
+
+    if counter_name not in st.session_state:
+        st.session_state[counter_name] = 0
+
+    idx = st.session_state[counter_name] % len(keys)
+    st.session_state[counter_name] += 1
+    return keys[idx]
 
 
 # st.set_page_config(page_title="XAUT Market Viewer", layout="wide")
@@ -66,7 +105,15 @@ with st.sidebar:
     max_spread = st.number_input("Max TOB spread (bps)", value=10_000.0, min_value=0.0)
 
 
-api_key = get_coingecko_api_key()
+#Retrive the Coingecko API Keys
+coingecko_keys = get_coingecko_api_keys()
+
+if not coingecko_keys:
+    st.warning("No CoinGecko API key found. Set COINGECKO_API_KEY_1/2 in Secrets or env vars.")
+
+# Pick (and rotate) keys independently for the two loaders
+api_key_main = pick_coingecko_key(coingecko_keys, "cg_key_rr_main")
+api_key_xaut0 = pick_coingecko_key(coingecko_keys, "cg_key_rr_xaut0")
 
 
 @st.cache_data(ttl=60, show_spinner=False)
@@ -84,8 +131,8 @@ if refresh:
 
 try:
     with st.spinner("Loading data..."):
-        cex_df, dex_df, usdt_df, btc_df, usd_df, final_df = load(api_key)
-        xaut0_df = load2(api_key)
+        cex_df, dex_df, usdt_df, btc_df, usd_df, final_df = load(api_key_main)
+        xaut0_df = load2(api_key_xaut0)
         
 except Exception as e:
     st.error("App crashed while loading data. Here is the exception:")
