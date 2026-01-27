@@ -1,0 +1,34 @@
+{
+  "Crypto.com": {
+    "ccxt_id": "cryptocom",
+    "pairs": [
+      { "symbol": "USAT/USD"}    
+	  ]
+  },
+ "OKX": {
+    "ccxt_id": "okx",
+    "pairs": [
+      { "symbol": "USAT/USDT" },
+	  { "symbol": "USAT/USD" }
+    ]
+  },
+  "Kraken": {
+    "ccxt_id": "kraken",
+    "pairs": [
+      { "symbol": "USAT/USDT"},
+      { "symbol": "USAT/USD" }
+    ]
+  },
+   "Bitget": {
+    "ccxt_id": "bitget",
+    "pairs": [
+      { "symbol": "USAT/USDT"}
+    ]
+  },
+   "MEXC": {
+    "ccxt_id": "mexc",
+    "pairs": [
+      { "symbol": "USAT/USDT"}
+    ]
+  }
+}
