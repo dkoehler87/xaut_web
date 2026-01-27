@@ -33,15 +33,23 @@ liq = st.Page(
     url_path="liquidity-monitor",
 )
 
-nav = st.navigation([home, liq])
+liq_usat = st.Page(
+    "pages/usat_liquidity_monitor.py",
+    title="Liquidity Monitor - USAT",
+    url_path="liquidity-monitor-usat",
+)
+
+nav = st.navigation([home, liq, liq_usat])
 
 
 def top_nav():
-    c1, c2, spacer = st.columns([1.4, 1.4, 6])
+    c1, c2, c3, spacer = st.columns([1.4, 1.4, 1.4, 6])
     with c1:
         st.page_link(home, label="Market Data Viewer")
     with c2:
-        st.page_link(liq, label="Liquidity Monitor")
+        st.page_link(liq, label="Liquidity Monitor - XAUT")
+    with c3:
+        st.page_link(liq_usat, label="Liquidity Monitor - USAT")
 
 top_nav()
 st.divider()
@@ -49,4 +57,5 @@ st.divider()
 # Run the selected page and stop here so app.py doesn't render anything else.
 nav.run()
 st.stop()
+
 
