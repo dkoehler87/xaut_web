@@ -8,8 +8,7 @@
  "OKX": {
     "ccxt_id": "okx",
     "pairs": [
-      { "symbol": "USAT/USDT" },
-	  { "symbol": "USAT/USD" }
+      { "symbol": "USAT/USDT" }
     ]
   },
   "Kraken": {
@@ -32,3 +31,4 @@
     ]
   }
 }
+
