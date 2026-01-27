@@ -9,8 +9,10 @@ import pandas as pd
 import streamlit as st
 from xaut_data import build_xaut_dataframes
 from xaut0_data import build_xaut0_dataframes
+from usat_data import build_usat_dataframes
 import plotly.express as px
 import os
+
 
 def _get_secret(name: str) -> str:
     try:
@@ -64,6 +66,7 @@ def pick_coingecko_key(keys: list[str], counter_name: str) -> str:
     return keys[idx]
 
 
+
 # st.set_page_config(page_title="XAUT Market Viewer", layout="wide")
 st.title("XAUT (Tether Gold) – Market Data Viewer")
 
@@ -104,7 +107,6 @@ with st.sidebar:
     min_usd_vol = st.number_input("Min USD volume", value=0.0, min_value=0.0)
     max_spread = st.number_input("Max TOB spread (bps)", value=10_000.0, min_value=0.0)
 
-
 #Retrive the Coingecko API Keys
 coingecko_keys = get_coingecko_api_keys()
 
@@ -114,6 +116,7 @@ if not coingecko_keys:
 # Pick (and rotate) keys independently for the two loaders
 api_key_main = pick_coingecko_key(coingecko_keys, "cg_key_rr_main")
 api_key_xaut0 = pick_coingecko_key(coingecko_keys, "cg_key_rr_xaut0")
+
 
 
 @st.cache_data(ttl=60, show_spinner=False)
@@ -126,6 +129,11 @@ def load2(api_key: str):
     
     return build_xaut0_dataframes(coingecko_api_key=api_key)
 
+@st.cache_data(ttl=60, show_spinner=False)
+def load3(api_key: str):
+    
+    return build_usat_dataframes(coingecko_api_key=api_key)
+
 if refresh:
     st.cache_data.clear()
 
@@ -133,6 +141,8 @@ try:
     with st.spinner("Loading data..."):
         cex_df, dex_df, usdt_df, btc_df, usd_df, final_df = load(api_key_main)
         xaut0_df = load2(api_key_xaut0)
+        usat_df = load3(api_key_xaut0)
+
         
 except Exception as e:
     st.error("App crashed while loading data. Here is the exception:")
@@ -140,7 +150,7 @@ except Exception as e:
     st.stop()
 
 
-tabs = st.tabs(["ALL","CEX", "DEX", "USDT", "BTC", "USD", "XAUT0"])
+tabs = st.tabs(["ALL","CEX", "DEX", "USDT", "BTC", "USD", "XAUT0","USAT"])
 
 tab_map = {
     "ALL": final_df,
@@ -149,7 +159,8 @@ tab_map = {
     "USDT": usdt_df,
     "BTC": btc_df,
     "USD": usd_df,
-    "XAUT0": xaut0_df
+    "XAUT0": xaut0_df,
+    "USAT": usat_df
 }
 
 def fmt_usd(x: float) -> str:
@@ -343,7 +354,6 @@ for tab, (name, df) in zip(tabs, tab_map.items()):
             top_n=10,
             title=f"{name} Market Share by Venue"
         )
-
 
 
 
