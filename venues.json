@@ -34,7 +34,7 @@
     "ccxt_id": "hyperliquid",
     "pairs": [
       { "symbol": "XAUT/USDT", "id": "@209" },
-      { "symbol": "XAUT/USDC", "id": "@182" }
+      { "symbol": "XAUT/USDC", "id": "@182" } 
     ]
   },
   "Bitfinex": {
@@ -43,6 +43,11 @@
       { "symbol": "XAUT/USDT", "id": "tXAUT:USD" },
       { "symbol": "XAUT/USD", "id": "tXAUT:USDT" }
     ]
+  },
+    "Bybit": {
+    "ccxt_id": "bybit",
+    "pairs": [
+      { "symbol": "XAUT/USDT"}
+    ]
   }
 }
-
