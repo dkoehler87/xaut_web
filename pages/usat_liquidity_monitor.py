@@ -572,9 +572,9 @@ def liquidity_page():
 
         # Formatting
         fmt_map = {
-            "Best Bid": "{:,.2f}",
-            "Best Ask": "{:,.2f}",
-            "Mid": "{:,.2f}",
+            "Best Bid": "{:,.4f}",
+            "Best Ask": "{:,.4f}",
+            "Mid": "{:,.4f}",
             "TOB Spread (bps)": "{:,.2f}",
         }
         for bps in depth_bps_levels:
@@ -739,3 +739,4 @@ def liquidity_page():
 
 if __name__ == '__main__':
     liquidity_page()
+
