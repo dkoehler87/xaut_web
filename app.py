@@ -7,7 +7,7 @@ Created on Fri Dec 19 12:22:45 2025
 
 import streamlit as st
 
-st.set_page_config(page_title="XAUT Apps", layout="wide")
+st.set_page_config(page_title="Volume & Liquidity Monitor", layout="wide")
 
 # Hide Streamlit's default multipage nav section (keeps your own sidebar controls intact)
 st.markdown(
@@ -43,7 +43,7 @@ nav = st.navigation([home, liq, liq_usat])
 
 
 def top_nav():
-    c1, c2, c3, spacer = st.columns([1.4, 1.4, 1.4, 6])
+    c1, c2, c3, spacer = st.columns([1.5, 1.5, 1.5, 6])
     with c1:
         st.page_link(home, label="Market Data Viewer")
     with c2:
@@ -57,5 +57,6 @@ st.divider()
 # Run the selected page and stop here so app.py doesn't render anything else.
 nav.run()
 st.stop()
+
 
 
