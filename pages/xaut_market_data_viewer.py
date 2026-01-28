@@ -68,7 +68,7 @@ def pick_coingecko_key(keys: list[str], counter_name: str) -> str:
 
 
 # st.set_page_config(page_title="XAUT Market Viewer", layout="wide")
-st.title("XAUT (Tether Gold) – Market Data Viewer")
+st.title("Market Data Viewer - Coingecko")
 
 
 DECIMAL_2_COLS = [
@@ -150,18 +150,64 @@ except Exception as e:
     st.stop()
 
 
-tabs = st.tabs(["ALL","CEX", "DEX", "USDT", "BTC", "USD", "XAUT0","USAT"])
+# --- Token selector (3 buttons) ---
+token = st.segmented_control(
+    "Token",
+    options=["XAUT", "XAUT0", "USAT"],
+    default="XAUT",
+)
 
-tab_map = {
-    "ALL": final_df,
-    "CEX": cex_df,
-    "DEX": dex_df,
-    "USDT": usdt_df,
-    "BTC": btc_df,
-    "USD": usd_df,
+# Pick the base dataframe for the selected token
+token_to_df = {
+    "XAUT": final_df,
     "XAUT0": xaut0_df,
-    "USAT": usat_df
+    "USAT": usat_df,
 }
+
+base_df = token_to_df[token]
+
+
+
+
+def quote_ccy_from_pair(pair: str) -> str:
+    """
+    Extract quote currency from Trading Pair strings like:
+      XAUT/USDT, XAUT-USDT, XAUT_USDT, etc.
+    Falls back gracefully if format is unexpected.
+    """
+    if not isinstance(pair, str):
+        return ""
+    p = pair.strip().upper()
+    for sep in ("/", "-", "_", ":"):
+        if sep in p:
+            parts = p.split(sep)
+            if len(parts) >= 2:
+                return parts[-1].strip()
+    return ""
+
+def breakdown_df(df: pd.DataFrame, bucket: str) -> pd.DataFrame:
+    out = df
+
+    # CEX/DEX buckets (based on Venue Type)
+    if bucket == "CEX":
+        if "Venue Type" in out.columns:
+            return out[out["Venue Type"].astype(str).str.lower() == "cex"]
+        return out.iloc[0:0]
+
+    if bucket == "DEX":
+        if "Venue Type" in out.columns:
+            return out[out["Venue Type"].astype(str).str.lower() == "dex"]
+        return out.iloc[0:0]
+
+    # Quote currency buckets (based on Trading Pair)
+    if bucket in ("USDT", "BTC", "USD"):
+        if "Trading Pair" not in out.columns:
+            return out.iloc[0:0]
+        q = out["Trading Pair"].astype(str).map(quote_ccy_from_pair)
+        return out[q == bucket]
+
+    # ALL
+    return out
 
 def fmt_usd(x: float) -> str:
     try:
@@ -276,31 +322,32 @@ def render_market_share_pie_plotly(
 
     st.plotly_chart(fig, width="stretch")
 
+breakdowns = ["ALL", "CEX", "DEX", "USDT", "BTC", "USD"]
+tabs = st.tabs(breakdowns)
 
-
-for tab, (name, df) in zip(tabs, tab_map.items()):
+for tab, name in zip(tabs, breakdowns):
     with tab:
-        st.subheader(name)
+        st.subheader(f"{token} — {name}")
+        df = breakdown_df(base_df, name)
 
         filtered = apply_quick_filters(df)
-        
-        # Recompute market share based on *filtered view* so the chart & column match what’s displayed
+
+        # Recompute market share based on filtered view
         filtered = filtered.copy()
         filtered["Volume (USD)"] = pd.to_numeric(filtered["Volume (USD)"], errors="coerce")
         total_usd = filtered["Volume (USD)"].sum(skipna=True)
         filtered["Market Share"] = (filtered["Volume (USD)"] / total_usd) if total_usd and total_usd > 0 else 0.0
 
-
-        # Make sure usd_volume is numeric
+        # metrics (same as you already do)
         df_usd = df.copy()
         df_usd["Volume (USD)"] = pd.to_numeric(df_usd["Volume (USD)"], errors="coerce").fillna(0)
-        
+
         filtered_usd = filtered.copy()
         filtered_usd["Volume (USD)"] = pd.to_numeric(filtered_usd["Volume (USD)"], errors="coerce").fillna(0)
-        
+
         total_usd_volume = float(df_usd["Volume (USD)"].sum())
         filtered_usd_volume = float(filtered_usd["Volume (USD)"].sum())
-        
+
         c1, c2, c3, c4 = st.columns([1, 1, 1.4, 2])
         with c1:
             st.metric("Rows (filtered)", f"{len(filtered):,}")
@@ -311,19 +358,15 @@ for tab, (name, df) in zip(tabs, tab_map.items()):
         with c4:
             st.metric("USD Volume (total)", fmt_usd(total_usd_volume))
 
-
         formatted = format_numeric_columns(filtered)
-        
+
         format_dict = {}
-        
         for col in DECIMAL_2_COLS:
             if col in formatted.columns:
                 format_dict[col] = "{:,.2f}"
-        
         for col in DECIMAL_0_COLS:
             if col in formatted.columns:
                 format_dict[col] = "{:,.0f}"
-                
         for col in PCT_0_COLS:
             if col in formatted.columns:
                 format_dict[col] = "{:.0%}"
@@ -333,27 +376,24 @@ for tab, (name, df) in zip(tabs, tab_map.items()):
             .format(format_dict)
             .map(trust_score_style, subset=["Trust Score"])
         )
-        
-        st.dataframe(
-            styler,
-            width="stretch",
-            hide_index=True,
-        )
-        
+
+        st.dataframe(styler, width="stretch", hide_index=True)
+
         st.download_button(
             "Download filtered CSV",
             data=filtered.to_csv(index=False).encode("utf-8"),
-            file_name=f"xaut_{name.lower()}_filtered.csv",
+            file_name=f"{token.lower()}_{name.lower()}_filtered.csv",
             mime="text/csv",
         )
-        
+
         st.markdown("### Market Share (by venue)")
         render_market_share_pie_plotly(
             filtered,
             label_col="Venue",
             top_n=10,
-            title=f"{name} Market Share by Venue"
+            title=f"{token} {name} Market Share by Venue"
         )
+
 
 
 
