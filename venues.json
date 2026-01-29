@@ -20,7 +20,8 @@
   "Crypto.com": {
     "ccxt_id": "cryptocom",
     "pairs": [
-      { "symbol": "XAUT/USD", "id": "XAUT_USD" }
+      { "symbol": "XAUT/USD", "id": "XAUT_USD" },
+      { "symbol": "XAUT/USDT", "id": "XAUT_USD" }
     ]
   },
   "Kraken": {
@@ -51,3 +52,4 @@
     ]
   }
 }
+
