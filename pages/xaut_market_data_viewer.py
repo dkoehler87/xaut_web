@@ -7,7 +7,7 @@ Created on Fri Dec 19 12:22:45 2025
 
 import pandas as pd
 import streamlit as st
-from xaut_data import build_xaut_dataframes
+from xaut_data import build_xaut_dataframes, build_xaut_perps_dataframe
 from xaut0_data import build_xaut0_dataframes
 from usat_data import build_usat_dataframes
 import plotly.express as px
@@ -111,6 +111,15 @@ def pick_coingecko_key(keys: list[str], counter_name: str) -> str:
     return keys[idx]
 
 
+def move_col_left_of(df: pd.DataFrame, col: str, ref_col: str) -> pd.DataFrame:
+    if col not in df.columns or ref_col not in df.columns:
+        return df
+    cols = list(df.columns)
+    cols.remove(col)
+    ref_idx = cols.index(ref_col)
+    cols.insert(ref_idx, col)
+    return df[cols]
+
 
 # st.set_page_config(page_title="XAUT Market Viewer", layout="wide")
 st.title("Market Data Viewer - Coingecko")
@@ -170,6 +179,11 @@ def load2(api_key: str):
 def load3(api_key: str):
     return build_usat_dataframes(coingecko_api_key=api_key)
 
+@st.cache_data(ttl=600, show_spinner=False)
+def load_xaut_perps(api_key: str):
+    return build_xaut_perps_dataframe(coingecko_api_key=api_key)
+
+
 if refresh:
     st.cache_data.clear()
     st.session_state.pop("data_bundle", None)
@@ -180,12 +194,13 @@ try:
             cex_df, dex_df, usdt_df, btc_df, usd_df, final_df = run_with_cg_backoff(load,  coingecko_keys, "xaut")
             xaut0_df = run_with_cg_backoff(load2, coingecko_keys, "xaut0")
             usat_df  = run_with_cg_backoff(load3, coingecko_keys, "usat")
+            xaut_perps_df = run_with_cg_backoff(load_xaut_perps, coingecko_keys, "xaut_perps")
 
-            st.session_state["data_bundle"] = (
-                cex_df, dex_df, usdt_df, btc_df, usd_df, final_df, xaut0_df, usat_df
-            )
+        st.session_state["data_bundle"] = (
+            cex_df, dex_df, usdt_df, btc_df, usd_df, final_df, xaut0_df, usat_df, xaut_perps_df
+        )
 
-    (cex_df, dex_df, usdt_df, btc_df, usd_df, final_df, xaut0_df, usat_df) = st.session_state["data_bundle"]
+    (cex_df, dex_df, usdt_df, btc_df, usd_df, final_df, xaut0_df, usat_df, xaut_perps_df) = st.session_state["data_bundle"]
 
 except Exception as e:
     st.error("App crashed while loading data. Here is the exception:")
@@ -200,46 +215,79 @@ token = st.segmented_control(
     default="XAUT",
 )
 
-# Pick the base dataframe for the selected token
-token_to_df = {
-    "XAUT": final_df,
-    "XAUT0": xaut0_df,
-    "USAT": usat_df,
-}
+market_type = st.segmented_control(
+    "Market",
+    options=["Spot", "Perpetuals"],
+    default="Spot",
+)
+
+
+if market_type == "Spot":
+    token_to_df = {
+        "XAUT": final_df,
+        "XAUT0": xaut0_df,
+        "USAT": usat_df,
+    }
+else:
+    token_to_df = {
+        "XAUT": xaut_perps_df,
+        "XAUT0": xaut0_df.iloc[0:0],  # empty
+        "USAT": usat_df.iloc[0:0],    # empty
+    }
 
 base_df = token_to_df[token]
 
-# ----------------------------
-# Global exclusion list (applies across tokens)
-# ----------------------------
-if "excluded_venues" not in st.session_state:
-    st.session_state["excluded_venues"] = []
+if market_type == "Perpetuals" and token != "XAUT":
+    st.info("Perpetuals are only available for XAUT via CoinGecko.")
 
-all_venues_union = sorted(
-    set(
-        pd.concat(
-            [
-                final_df.get("Venue", pd.Series(dtype=str)).dropna().astype(str),
-                xaut0_df.get("Venue", pd.Series(dtype=str)).dropna().astype(str),
-                usat_df.get("Venue", pd.Series(dtype=str)).dropna().astype(str),
-            ],
-            ignore_index=True
-        ).unique().tolist()
+
+# ----------------------------
+# Exclusion List (separate per Market: Spot vs Perpetuals)
+# ----------------------------
+if "excluded_venues_spot" not in st.session_state:
+    st.session_state["excluded_venues_spot"] = []
+if "excluded_venues_perps" not in st.session_state:
+    st.session_state["excluded_venues_perps"] = []
+
+if market_type == "Spot":
+    # Spot venue universe ONLY (do NOT include perps venues)
+    all_venues = sorted(
+        set(
+            pd.concat(
+                [
+                    final_df.get("Venue", pd.Series(dtype=str)).dropna().astype(str),
+                    xaut0_df.get("Venue", pd.Series(dtype=str)).dropna().astype(str),
+                    usat_df.get("Venue", pd.Series(dtype=str)).dropna().astype(str),
+                ],
+                ignore_index=True
+            ).unique().tolist()
+        )
     )
-)
+    widget_key = "excluded_venues_spot"
+else:
+    # Perps venue universe ONLY
+    all_venues = sorted(
+        set(
+            xaut_perps_df.get("Venue", pd.Series(dtype=str)).dropna().astype(str).unique().tolist()
+        )
+    )
+    widget_key = "excluded_venues_perps"
 
-def clear_exclusions():
-    st.session_state["excluded_venues"] = []
+# If the universe changes (e.g., refresh), prune selections that no longer exist
+allowed = set(all_venues)
+st.session_state[widget_key] = [v for v in st.session_state[widget_key] if v in allowed]
+
+def clear_exclusions_for_current_market():
+    st.session_state[widget_key] = []
 
 st.multiselect(
-    "Venue Exclusion List",
-    options=all_venues_union,
-    key="excluded_venues",
-    help="Selected venues will be excluded from tables, downloads, and charts.",
+    "Exclusion List",
+    options=all_venues,
+    key=widget_key,
+    help="Selections are preserved separately for Spot and Perpetuals.",
 )
 
-st.button("Clear exclusions", on_click=clear_exclusions)
-
+st.button("Clear exclusions", on_click=clear_exclusions_for_current_market)
 
 
 def quote_ccy_from_pair(pair: str) -> str:
@@ -257,6 +305,15 @@ def quote_ccy_from_pair(pair: str) -> str:
             if len(parts) >= 2:
                 return parts[-1].strip()
     return ""
+
+def fmt_pct_trim_6(x):
+    try:
+        if pd.isna(x):
+            return ""
+        return f"{round(float(x), 6):.6f}".rstrip("0").rstrip(".") + "%"
+    except Exception:
+        return ""
+
 
 def breakdown_df(df: pd.DataFrame, bucket: str) -> pd.DataFrame:
     out = df
@@ -407,13 +464,16 @@ for tab, name in zip(tabs, breakdowns):
         st.subheader(f"{token} — {name}")
         df = breakdown_df(base_df, name)
 
-        filtered = apply_quick_filters(df, excluded_venues=st.session_state["excluded_venues"])
+        active_exclusions = st.session_state["excluded_venues_spot"] if market_type == "Spot" else st.session_state["excluded_venues_perps"]
+        filtered = apply_quick_filters(df, excluded_venues=active_exclusions)
 
         # Recompute market share based on filtered view
         filtered = filtered.copy()
         filtered["Volume (USD)"] = pd.to_numeric(filtered["Volume (USD)"], errors="coerce")
         total_usd = filtered["Volume (USD)"].sum(skipna=True)
         filtered["Market Share"] = (filtered["Volume (USD)"] / total_usd) if total_usd and total_usd > 0 else 0.0
+        
+        filtered = move_col_left_of(filtered, "Venue Type", "Market Share")
 
         # metrics (same as you already do)
         df_usd = df.copy()
@@ -447,12 +507,20 @@ for tab, name in zip(tabs, breakdowns):
         for col in PCT_0_COLS:
             if col in formatted.columns:
                 format_dict[col] = "{:.0%}"
+                
+        # Perpetuals-specific formatting
+        for col in ["Open Interest", "Index"]:
+            if col in formatted.columns:
+                format_dict[col] = "{:,.2f}"
 
-        styler = (
-            formatted.style
-            .format(format_dict)
-            .map(trust_score_style, subset=["Trust Score"])
-        )
+        # Add Funding Rate formatter into the same formatter dict (DON'T call .format() twice)
+        if "Funding Rate" in formatted.columns:
+            format_dict["Funding Rate"] = fmt_pct_trim_6
+        
+        styler = formatted.style.format(format_dict)
+        
+        if "Trust Score" in formatted.columns:
+            styler = styler.map(trust_score_style, subset=["Trust Score"])
 
         st.dataframe(styler, width="stretch", hide_index=True)
 
@@ -470,15 +538,3 @@ for tab, name in zip(tabs, breakdowns):
             top_n=10,
             title=f"{token} {name} Market Share by Venue"
         )
-
-
-
-
-
-
-
-
-
-
-
-
