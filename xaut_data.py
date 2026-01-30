@@ -7,8 +7,11 @@ Created on Sun Dec 14 10:31:49 2025
 
 import requests
 import pandas as pd
+import numpy as np
 
 COIN_TICKERS_URL = "https://api.coingecko.com/api/v3/coins/{id}/tickers"
+DERIVATIVES_URL = "https://api.coingecko.com/api/v3/derivatives"
+
 
 
 def fetch_all_tickers(coin_id: str, headers: dict, **extra_params):
@@ -123,7 +126,7 @@ def build_xaut_dataframes(coingecko_api_key: str = "", coin_id: str = "tether-go
 
     # Map venue type
     ticker_df["venue_type"] = ticker_df["venue"].map(dex_dict).fillna("cex")
-
+    
     #Fix Icrypex duplication
     # --- Remove duplicated icrypex XAUT/USDT rows (CoinGecko bug) ---
     mask = (ticker_df["venue_id"] == "icrypex") & (ticker_df["trading_pair"] == "XAUT/USDT")
@@ -140,6 +143,7 @@ def build_xaut_dataframes(coingecko_api_key: str = "", coin_id: str = "tether-go
         )
     
         ticker_df = pd.concat([rest, icr], ignore_index=True)
+
 
     # Fix Coinup volume (incorrect) - use 'volume' field
     ticker_df.loc[ticker_df["venue_id"] == "coinup", "usd_volume"] = (
@@ -199,6 +203,92 @@ def build_xaut_dataframes(coingecko_api_key: str = "", coin_id: str = "tether-go
     return cex_df, dex_df, usdt_df, btc_df, usd_df, all_df
 
 
+def build_xaut_perps_dataframe(coingecko_api_key: str = "", underlying: str = "XAUT") -> pd.DataFrame:
+    """
+    Pull perpetuals from CoinGecko /derivatives and filter for the given underlying (default: XAUT).
+    Returns a dataframe shaped similarly to your spot viewer.
+    """
+    headers = {"x-cg-demo-api-key": f"{coingecko_api_key}"}
+
+    resp = requests.get(DERIVATIVES_URL, headers=headers, timeout=30)
+    resp.raise_for_status()
+    rows = resp.json()  # list[dict]
+
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return pd.DataFrame(columns=[
+            "Venue","Trading Pair","Base","Quote","Last","Volume (USD)",
+            "TOB Spread (bps)",
+            "Venue Type","Market Share",
+            "Funding Rate","Open Interest","Index","Basis","Contract Type"
+        ])
 
 
+    # Normalize + filter
+    df["index_id"] = df.get("index_id", "").astype(str)
+    df["symbol"] = df.get("symbol", "").astype(str)
+    df["contract_type"] = df.get("contract_type", "").astype(str)
+
+    u = underlying.upper()
+
+    # Prefer index_id exact match; fallback to symbol contains
+    mask_u = df["index_id"].str.upper().eq(u) | df["symbol"].str.upper().str.contains(u, na=False)
+    df = df[mask_u].copy()
+
+    # Keep perpetuals only
+    df = df[df["contract_type"].str.lower().eq("perpetual")].copy()
+
+    if df.empty:
+        return pd.DataFrame(columns=[
+            "Venue","Trading Pair","Base","Quote","Last","Volume (USD)",
+            "TOB Spread (bps)",
+            "Venue Type","Market Share",
+            "Funding Rate","Open Interest","Index","Basis","Contract Type"
+        ])
+
+
+    out = pd.DataFrame()
+    out["Venue"] = df.get("market", "").astype(str)
+    out["Trading Pair"] = df.get("symbol", "").astype(str)
+    out["Base"] = df.get("index_id", "").astype(str).str.upper()
+
+    # Quote: best-effort parse from symbol
+    sym_u = out["Trading Pair"].str.upper()
+    out["Quote"] = ""
+    out.loc[sym_u.str.contains("USDT", na=False), "Quote"] = "USDT"
+    out.loc[(sym_u.str.contains("USD", na=False)) & (~sym_u.str.contains("USDT", na=False)), "Quote"] = "USD"
+    out.loc[sym_u.str.contains("BTC", na=False), "Quote"] = "BTC"
+
+    out["Last"] = pd.to_numeric(df.get("price"), errors="coerce")
+
+    # CoinGecko derivatives endpoint provides 24h volume (often already USD). We'll treat it as USD.
+    out["Volume (USD)"] = pd.to_numeric(df.get("volume_24h"), errors="coerce")
+
+    # Spread: can be percent-ish or absolute depending on venue. Convert to bps heuristically.
+    spread_raw = pd.to_numeric(df.get("spread"), errors="coerce")
+    price = pd.to_numeric(df.get("price"), errors="coerce").replace(0, pd.NA)
+    
+    # TOB Spread (bps) = spread / price / 0.0001 = (spread / price) * 10000
+    out["TOB Spread (bps)"] = ((spread_raw / price) * 10000).round(2)
+
+
+    # Keep compatible with your CEX/DEX breakdown logic
+    out["Venue Type"] = "cex"
+
+    # Extra perps-specific fields
+    out["Funding Rate"] = pd.to_numeric(df.get("funding_rate"), errors="coerce")
+    out["Open Interest"] = pd.to_numeric(df.get("open_interest"), errors="coerce")
+    out["Index"] = pd.to_numeric(df.get("index"), errors="coerce")
+    out["Basis"] = pd.to_numeric(df.get("basis"), errors="coerce")
+    out["Contract Type"] = df.get("contract_type", "").astype(str)
+
+    out = out.sort_values("Volume (USD)", ascending=False)
+    out = add_market_share(out, volume_col="Volume (USD)")
+    
+    return out
+
+    
+
+    
+    
 
