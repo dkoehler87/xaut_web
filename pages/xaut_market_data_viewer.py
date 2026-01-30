@@ -12,6 +12,51 @@ from xaut0_data import build_xaut0_dataframes
 from usat_data import build_usat_dataframes
 import plotly.express as px
 import os
+import time
+import random
+import requests
+
+
+def run_with_cg_backoff(fn, keys: list[str], label: str, max_tries: int = 6):
+    """
+    Runs a loader fn(api_key) with:
+      - key rotation across attempts
+      - exponential backoff on HTTP 429
+    """
+    last_err = None
+
+    for attempt in range(max_tries):
+        api_key = pick_coingecko_key(keys, f"cg_rr_{label}")
+
+        try:
+            return fn(api_key)
+
+        except requests.HTTPError as e:
+            last_err = e
+            resp = getattr(e, "response", None)
+            status = getattr(resp, "status_code", None)
+
+            # Only backoff on 429. Everything else: raise immediately.
+            if status != 429:
+                raise
+
+            # Respect Retry-After when present, else exponential backoff + jitter
+            retry_after = None
+            if resp is not None:
+                ra = resp.headers.get("Retry-After")
+                if ra and ra.isdigit():
+                    retry_after = int(ra)
+
+            sleep_s = retry_after if retry_after is not None else min(2 ** attempt, 30) + random.random()
+            time.sleep(sleep_s)
+            continue
+
+        except Exception as e:
+            # Non-HTTP errors (parsing, etc.) shouldn't be retried forever
+            raise
+
+    # If we exhausted retries, re-raise the last error
+    raise last_err
 
 
 def _get_secret(name: str) -> str:
@@ -97,7 +142,7 @@ with st.sidebar:
     st.header("Settings")
     refresh = st.button("Refresh data")
     st.markdown("---")
-    st.subheader("Quick Filters (apply within current tab)")
+    st.subheader("Quick Filters")
     tp_search = st.text_input("Trading pair contains", value="")
     venue_search = st.text_input("Venue contains", value="")
     venue_type_filter = st.multiselect("Venue type", ["cex", "dex"], default=[])
@@ -113,37 +158,35 @@ coingecko_keys = get_coingecko_api_keys()
 if not coingecko_keys:
     st.warning("No CoinGecko API key found. Set COINGECKO_API_KEY_1/2 in Secrets or env vars.")
 
-# Pick (and rotate) keys independently for the two loaders
-api_key_main = pick_coingecko_key(coingecko_keys, "cg_key_rr_main")
-api_key_xaut0 = pick_coingecko_key(coingecko_keys, "cg_key_rr_xaut0")
-
-
-
-@st.cache_data(ttl=60, show_spinner=False)
+@st.cache_data(ttl=600, show_spinner=False)   # 10 minutes
 def load(api_key: str):
-    
     return build_xaut_dataframes(coingecko_api_key=api_key)
-    
-@st.cache_data(ttl=60, show_spinner=False)
+
+@st.cache_data(ttl=600, show_spinner=False)
 def load2(api_key: str):
-    
     return build_xaut0_dataframes(coingecko_api_key=api_key)
 
-@st.cache_data(ttl=60, show_spinner=False)
+@st.cache_data(ttl=600, show_spinner=False)
 def load3(api_key: str):
-    
     return build_usat_dataframes(coingecko_api_key=api_key)
 
 if refresh:
     st.cache_data.clear()
+    st.session_state.pop("data_bundle", None)
 
 try:
-    with st.spinner("Loading data..."):
-        cex_df, dex_df, usdt_df, btc_df, usd_df, final_df = load(api_key_main)
-        xaut0_df = load2(api_key_xaut0)
-        usat_df = load3(api_key_xaut0)
+    if "data_bundle" not in st.session_state:
+        with st.spinner("Loading data..."):
+            cex_df, dex_df, usdt_df, btc_df, usd_df, final_df = run_with_cg_backoff(load,  coingecko_keys, "xaut")
+            xaut0_df = run_with_cg_backoff(load2, coingecko_keys, "xaut0")
+            usat_df  = run_with_cg_backoff(load3, coingecko_keys, "usat")
 
-        
+            st.session_state["data_bundle"] = (
+                cex_df, dex_df, usdt_df, btc_df, usd_df, final_df, xaut0_df, usat_df
+            )
+
+    (cex_df, dex_df, usdt_df, btc_df, usd_df, final_df, xaut0_df, usat_df) = st.session_state["data_bundle"]
+
 except Exception as e:
     st.error("App crashed while loading data. Here is the exception:")
     st.exception(e)
@@ -166,6 +209,36 @@ token_to_df = {
 
 base_df = token_to_df[token]
 
+# ----------------------------
+# Global exclusion list (applies across tokens)
+# ----------------------------
+if "excluded_venues" not in st.session_state:
+    st.session_state["excluded_venues"] = []
+
+all_venues_union = sorted(
+    set(
+        pd.concat(
+            [
+                final_df.get("Venue", pd.Series(dtype=str)).dropna().astype(str),
+                xaut0_df.get("Venue", pd.Series(dtype=str)).dropna().astype(str),
+                usat_df.get("Venue", pd.Series(dtype=str)).dropna().astype(str),
+            ],
+            ignore_index=True
+        ).unique().tolist()
+    )
+)
+
+def clear_exclusions():
+    st.session_state["excluded_venues"] = []
+
+st.multiselect(
+    "Venue Exclusion List",
+    options=all_venues_union,
+    key="excluded_venues",
+    help="Selected venues will be excluded from tables, downloads, and charts.",
+)
+
+st.button("Clear exclusions", on_click=clear_exclusions)
 
 
 
@@ -215,8 +288,12 @@ def fmt_usd(x: float) -> str:
     except Exception:
         return "$0"
 
-def apply_quick_filters(df: pd.DataFrame) -> pd.DataFrame:
+def apply_quick_filters(df: pd.DataFrame, excluded_venues: list[str] | None = None) -> pd.DataFrame:
     out = df.copy()
+
+    if excluded_venues and "Venue" in out.columns:
+        excl = set(str(v) for v in excluded_venues)
+        out = out[~out["Venue"].astype(str).isin(excl)]
 
     if tp_search.strip():
         out = out[out["Trading Pair"].astype(str).str.contains(tp_search, case=False, na=False)]
@@ -330,7 +407,7 @@ for tab, name in zip(tabs, breakdowns):
         st.subheader(f"{token} — {name}")
         df = breakdown_df(base_df, name)
 
-        filtered = apply_quick_filters(df)
+        filtered = apply_quick_filters(df, excluded_venues=st.session_state["excluded_venues"])
 
         # Recompute market share based on filtered view
         filtered = filtered.copy()
