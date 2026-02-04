@@ -15,6 +15,7 @@ import ccxt
 import altair as alt
 import json
 from pathlib import Path
+from io import BytesIO
 
 try:
     from streamlit_autorefresh import st_autorefresh
@@ -66,7 +67,7 @@ def fetch_orderbook_snapshot(ccxt_id: str, symbol: str, limit: int):
     """
     ex = get_exchange(ccxt_id)
     
-    if ccxt_id == "bitfinex" and limit and limit > 100:
+    if (ccxt_id == "bitfinex" or ccxt_id == "kucoin") and limit and limit > 100:
         limit = 100
 
     try:
@@ -82,6 +83,40 @@ def fetch_orderbook_snapshot(ccxt_id: str, symbol: str, limit: int):
         "bids": ob.get("bids") or [],
         "asks": ob.get("asks") or [],
     }
+
+
+def df_to_xlsx(df: pd.DataFrame) -> BytesIO:
+    df = make_excel_safe(df)
+
+    buffer = BytesIO()
+    with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
+        df.to_excel(writer, index=False, sheet_name="USAT Live")
+    buffer.seek(0)
+    return buffer
+
+
+
+def make_excel_safe(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+
+    for col in out.columns:
+        s = out[col]
+        dtype = s.dtype
+
+        # Case 1: Proper datetime64[ns, tz]
+        if isinstance(dtype, pd.DatetimeTZDtype):
+            out[col] = s.dt.tz_convert(None)
+
+        # Case 2: object column with tz-aware pandas Timestamps
+        elif s.dtype == "object":
+            if s.apply(lambda x: isinstance(x, pd.Timestamp) and x.tz is not None).any():
+                out[col] = s.apply(
+                    lambda x: x.tz_convert(None)
+                    if isinstance(x, pd.Timestamp) and x.tz is not None
+                    else x
+                )
+
+    return out
 
 
 def iter_levels(levels):
@@ -590,6 +625,15 @@ def liquidity_page():
             width="content",
             hide_index=True,
         )
+        
+        st.download_button(
+        label="Download Excel",
+        data=df_to_xlsx(live_df),
+        file_name="usat_liquidity_live.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        key="usat_live_xlsx_download",
+        )
+        
     else:
         st.warning("No live data returned (or all venues errored).")
 
@@ -739,4 +783,3 @@ def liquidity_page():
 
 if __name__ == '__main__':
     liquidity_page()
-
