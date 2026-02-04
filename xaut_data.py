@@ -89,6 +89,16 @@ def build_xaut_dataframes(coingecko_api_key: str = "", coin_id: str = "tether-go
     # --- Second pull: include depth ---
     result2 = fetch_all_tickers(coin_id, headers, dex_pair_format="symbol", depth="true")
     ticker_df = pd.json_normalize(result2["tickers"])
+
+    # --- Drop rows where timestamp is older than 1 hour ---
+    ticker_df["timestamp_dt"] = pd.to_datetime(ticker_df["timestamp"], utc=True, errors="coerce")
+    cutoff = pd.Timestamp.utcnow() - pd.Timedelta(hours=1)
+    
+    ticker_df = ticker_df[ticker_df["timestamp_dt"] >= cutoff].copy()
+    
+    # cleanup helper column
+    ticker_df = ticker_df.drop(columns=["timestamp_dt"])
+
     ticker_df["trading_pair"] = ticker_df["base"] + "/" + ticker_df["target"]
     ticker_df = ticker_df.rename(
         columns={
@@ -291,4 +301,5 @@ def build_xaut_perps_dataframe(coingecko_api_key: str = "", underlying: str = "X
 
     
     
+
 
