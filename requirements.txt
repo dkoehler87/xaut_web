@@ -6,4 +6,3 @@ streamlit-autorefresh
 ccxt
 altair
 io
-xlsxwriter
