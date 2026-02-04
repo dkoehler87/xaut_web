@@ -15,6 +15,7 @@ import os
 import time
 import random
 import requests
+from io import BytesIO
 
 
 def run_with_cg_backoff(fn, keys: list[str], label: str, max_tries: int = 6):
@@ -120,176 +121,10 @@ def move_col_left_of(df: pd.DataFrame, col: str, ref_col: str) -> pd.DataFrame:
     cols.insert(ref_idx, col)
     return df[cols]
 
-
-# st.set_page_config(page_title="XAUT Market Viewer", layout="wide")
-st.title("Market Data Viewer - Coingecko")
-
-
-DECIMAL_2_COLS = [
-    "Last",
-    "TOB Spread (bps)",
-]
-
-DECIMAL_0_COLS = [
-    "Volume",
-    "Volume (USD)",
-    "Bid Depth (200 bps)",
-    "Ask Depth (200 bps)",
-]
-
-TRUST_COLORS = {
-    "green": "#1e8e3e",   # strong green
-    "yellow": "#f9ab00",  # strong yellow
-    "red": "#d93025",     # strong red
-}
-
-PCT_0_COLS = ["Market Share"]
-
-
-
-with st.sidebar:
-    st.header("Settings")
-    refresh = st.button("Refresh data")
-    st.markdown("---")
-    st.subheader("Quick Filters")
-    tp_search = st.text_input("Trading pair contains", value="")
-    venue_search = st.text_input("Venue contains", value="")
-    venue_type_filter = st.multiselect("Venue type", ["cex", "dex"], default=[])
-
-    st.markdown("---")
-    st.subheader("Numeric Filters")
-    min_usd_vol = st.number_input("Min USD volume", value=0.0, min_value=0.0)
-    max_spread = st.number_input("Max TOB spread (bps)", value=10_000.0, min_value=0.0)
-
-#Retrive the Coingecko API Keys
-coingecko_keys = get_coingecko_api_keys()
-
-if not coingecko_keys:
-    st.warning("No CoinGecko API key found. Set COINGECKO_API_KEY_1/2 in Secrets or env vars.")
-
-@st.cache_data(ttl=600, show_spinner=False)   # 10 minutes
-def load(api_key: str):
-    return build_xaut_dataframes(coingecko_api_key=api_key)
-
-@st.cache_data(ttl=600, show_spinner=False)
-def load2(api_key: str):
-    return build_xaut0_dataframes(coingecko_api_key=api_key)
-
-@st.cache_data(ttl=600, show_spinner=False)
-def load3(api_key: str):
-    return build_usat_dataframes(coingecko_api_key=api_key)
-
-@st.cache_data(ttl=600, show_spinner=False)
-def load_xaut_perps(api_key: str):
-    return build_xaut_perps_dataframe(coingecko_api_key=api_key)
-
-
-if refresh:
-    st.cache_data.clear()
-    st.session_state.pop("data_bundle", None)
-
-try:
-    if "data_bundle" not in st.session_state:
-        with st.spinner("Loading data..."):
-            cex_df, dex_df, usdt_df, btc_df, usd_df, final_df = run_with_cg_backoff(load,  coingecko_keys, "xaut")
-            xaut0_df = run_with_cg_backoff(load2, coingecko_keys, "xaut0")
-            usat_df  = run_with_cg_backoff(load3, coingecko_keys, "usat")
-            xaut_perps_df = run_with_cg_backoff(load_xaut_perps, coingecko_keys, "xaut_perps")
-
-        st.session_state["data_bundle"] = (
-            cex_df, dex_df, usdt_df, btc_df, usd_df, final_df, xaut0_df, usat_df, xaut_perps_df
-        )
-
-    (cex_df, dex_df, usdt_df, btc_df, usd_df, final_df, xaut0_df, usat_df, xaut_perps_df) = st.session_state["data_bundle"]
-
-except Exception as e:
-    st.error("App crashed while loading data. Here is the exception:")
-    st.exception(e)
-    st.stop()
-
-
-# --- Token selector (3 buttons) ---
-token = st.segmented_control(
-    "Token",
-    options=["XAUT", "XAUT0", "USAT"],
-    default="XAUT",
-)
-
-market_type = st.segmented_control(
-    "Market",
-    options=["Spot", "Perpetuals"],
-    default="Spot",
-)
-
-
-if market_type == "Spot":
-    token_to_df = {
-        "XAUT": final_df,
-        "XAUT0": xaut0_df,
-        "USAT": usat_df,
-    }
-else:
-    token_to_df = {
-        "XAUT": xaut_perps_df,
-        "XAUT0": xaut0_df.iloc[0:0],  # empty
-        "USAT": usat_df.iloc[0:0],    # empty
-    }
-
-base_df = token_to_df[token]
-
-if market_type == "Perpetuals" and token != "XAUT":
-    st.info("Perpetuals are only available for XAUT via CoinGecko.")
-
-
-# ----------------------------
-# Exclusion List (separate per Market: Spot vs Perpetuals)
-# ----------------------------
-if "excluded_venues_spot" not in st.session_state:
-    st.session_state["excluded_venues_spot"] = []
-if "excluded_venues_perps" not in st.session_state:
-    st.session_state["excluded_venues_perps"] = []
-
-if market_type == "Spot":
-    # Spot venue universe ONLY (do NOT include perps venues)
-    all_venues = sorted(
-        set(
-            pd.concat(
-                [
-                    final_df.get("Venue", pd.Series(dtype=str)).dropna().astype(str),
-                    xaut0_df.get("Venue", pd.Series(dtype=str)).dropna().astype(str),
-                    usat_df.get("Venue", pd.Series(dtype=str)).dropna().astype(str),
-                ],
-                ignore_index=True
-            ).unique().tolist()
-        )
-    )
-    widget_key = "excluded_venues_spot"
-else:
-    # Perps venue universe ONLY
-    all_venues = sorted(
-        set(
-            xaut_perps_df.get("Venue", pd.Series(dtype=str)).dropna().astype(str).unique().tolist()
-        )
-    )
-    widget_key = "excluded_venues_perps"
-
-# If the universe changes (e.g., refresh), prune selections that no longer exist
-allowed = set(all_venues)
-st.session_state[widget_key] = [v for v in st.session_state[widget_key] if v in allowed]
-
 def clear_exclusions_for_current_market():
     st.session_state[widget_key] = []
-
-st.multiselect(
-    "Exclusion List",
-    options=all_venues,
-    key=widget_key,
-    help="Selections are preserved separately for Spot and Perpetuals.",
-)
-
-st.button("Clear exclusions", on_click=clear_exclusions_for_current_market)
-
-
+    
+    
 def quote_ccy_from_pair(pair: str) -> str:
     """
     Extract quote currency from Trading Pair strings like:
@@ -455,6 +290,184 @@ def render_market_share_pie_plotly(
     )
 
     st.plotly_chart(fig, width="stretch")
+    
+def dataframe_to_xlsx(df: pd.DataFrame) -> BytesIO:
+    buffer = BytesIO()
+    with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
+        df.to_excel(writer, index=False, sheet_name="Data")
+    buffer.seek(0)
+    return buffer
+
+
+#BEGINNING OF PAGE GENERATION
+
+# st.set_page_config(page_title="XAUT Market Viewer", layout="wide")
+st.title("Market Data Viewer - Coingecko")
+
+
+DECIMAL_2_COLS = [
+    "Last",
+    "TOB Spread (bps)",
+]
+
+DECIMAL_0_COLS = [
+    "Volume",
+    "Volume (USD)",
+    "Bid Depth (200 bps)",
+    "Ask Depth (200 bps)",
+]
+
+TRUST_COLORS = {
+    "green": "#1e8e3e",   # strong green
+    "yellow": "#f9ab00",  # strong yellow
+    "red": "#d93025",     # strong red
+}
+
+PCT_0_COLS = ["Market Share"]
+
+
+
+with st.sidebar:
+    st.header("Settings")
+    refresh = st.button("Refresh data")
+    st.markdown("---")
+    st.subheader("Quick Filters")
+    tp_search = st.text_input("Trading pair contains", value="")
+    venue_search = st.text_input("Venue contains", value="")
+    venue_type_filter = st.multiselect("Venue type", ["cex", "dex"], default=[])
+
+    st.markdown("---")
+    st.subheader("Numeric Filters")
+    min_usd_vol = st.number_input("Min USD volume", value=0.0, min_value=0.0)
+    max_spread = st.number_input("Max TOB spread (bps)", value=10_000.0, min_value=0.0)
+
+#Retrive the Coingecko API Keys
+coingecko_keys = get_coingecko_api_keys()
+
+if not coingecko_keys:
+    st.warning("No CoinGecko API key found. Set COINGECKO_API_KEY_1/2 in Secrets or env vars.")
+
+@st.cache_data(ttl=600, show_spinner=False)   # 10 minutes
+def load(api_key: str):
+    return build_xaut_dataframes(coingecko_api_key=api_key)
+
+@st.cache_data(ttl=600, show_spinner=False)
+def load2(api_key: str):
+    return build_xaut0_dataframes(coingecko_api_key=api_key)
+
+@st.cache_data(ttl=600, show_spinner=False)
+def load3(api_key: str):
+    return build_usat_dataframes(coingecko_api_key=api_key)
+
+@st.cache_data(ttl=600, show_spinner=False)
+def load_xaut_perps(api_key: str):
+    return build_xaut_perps_dataframe(coingecko_api_key=api_key)
+
+
+if refresh:
+    st.cache_data.clear()
+    st.session_state.pop("data_bundle", None)
+
+try:
+    if "data_bundle" not in st.session_state:
+        with st.spinner("Loading data..."):
+            cex_df, dex_df, usdt_df, btc_df, usd_df, final_df = run_with_cg_backoff(load,  coingecko_keys, "xaut")
+            xaut0_df = run_with_cg_backoff(load2, coingecko_keys, "xaut0")
+            usat_df  = run_with_cg_backoff(load3, coingecko_keys, "usat")
+            xaut_perps_df = run_with_cg_backoff(load_xaut_perps, coingecko_keys, "xaut_perps")
+
+        st.session_state["data_bundle"] = (
+            cex_df, dex_df, usdt_df, btc_df, usd_df, final_df, xaut0_df, usat_df, xaut_perps_df
+        )
+
+    (cex_df, dex_df, usdt_df, btc_df, usd_df, final_df, xaut0_df, usat_df, xaut_perps_df) = st.session_state["data_bundle"]
+
+except Exception as e:
+    st.error("App crashed while loading data. Here is the exception:")
+    st.exception(e)
+    st.stop()
+
+
+# --- Token selector (3 buttons) ---
+token = st.segmented_control(
+    "Token",
+    options=["XAUT", "XAUT0", "USAT"],
+    default="XAUT",
+)
+
+market_type = st.segmented_control(
+    "Market",
+    options=["Spot", "Perpetuals"],
+    default="Spot",
+)
+
+
+if market_type == "Spot":
+    token_to_df = {
+        "XAUT": final_df,
+        "XAUT0": xaut0_df,
+        "USAT": usat_df,
+    }
+else:
+    token_to_df = {
+        "XAUT": xaut_perps_df,
+        "XAUT0": xaut0_df.iloc[0:0],  # empty
+        "USAT": usat_df.iloc[0:0],    # empty
+    }
+
+base_df = token_to_df[token]
+
+if market_type == "Perpetuals" and token != "XAUT":
+    st.info("Perpetuals are only available for XAUT via CoinGecko.")
+
+
+# ----------------------------
+# Exclusion List (separate per Market: Spot vs Perpetuals)
+# ----------------------------
+if "excluded_venues_spot" not in st.session_state:
+    st.session_state["excluded_venues_spot"] = []
+if "excluded_venues_perps" not in st.session_state:
+    st.session_state["excluded_venues_perps"] = []
+
+if market_type == "Spot":
+    # Spot venue universe ONLY (do NOT include perps venues)
+    all_venues = sorted(
+        set(
+            pd.concat(
+                [
+                    final_df.get("Venue", pd.Series(dtype=str)).dropna().astype(str),
+                    xaut0_df.get("Venue", pd.Series(dtype=str)).dropna().astype(str),
+                    usat_df.get("Venue", pd.Series(dtype=str)).dropna().astype(str),
+                ],
+                ignore_index=True
+            ).unique().tolist()
+        )
+    )
+    widget_key = "excluded_venues_spot"
+else:
+    # Perps venue universe ONLY
+    all_venues = sorted(
+        set(
+            xaut_perps_df.get("Venue", pd.Series(dtype=str)).dropna().astype(str).unique().tolist()
+        )
+    )
+    widget_key = "excluded_venues_perps"
+
+# If the universe changes (e.g., refresh), prune selections that no longer exist
+allowed = set(all_venues)
+st.session_state[widget_key] = [v for v in st.session_state[widget_key] if v in allowed]
+
+st.multiselect(
+    "Exclusion List",
+    options=all_venues,
+    key=widget_key,
+    help="Selections are preserved separately for Spot and Perpetuals.",
+)
+
+st.button("Clear exclusions", on_click=clear_exclusions_for_current_market)
+
+
+
 
 breakdowns = ["ALL", "CEX", "DEX", "USDT", "BTC", "USD"]
 tabs = st.tabs(breakdowns)
@@ -524,11 +537,19 @@ for tab, name in zip(tabs, breakdowns):
 
         st.dataframe(styler, width="stretch", hide_index=True)
 
+        # st.download_button(
+        #     "Download filtered CSV",
+        #     data=filtered.to_csv(index=False).encode("utf-8"),
+        #     file_name=f"{token.lower()}_{name.lower()}_filtered.csv",
+        #     mime="text/csv",
+        # )
+
         st.download_button(
-            "Download filtered CSV",
-            data=filtered.to_csv(index=False).encode("utf-8"),
-            file_name=f"{token.lower()}_{name.lower()}_filtered.csv",
-            mime="text/csv",
+            "Download Excel",
+            dataframe_to_xlsx(filtered),
+            "filtered_data.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key = f"{token} {name} filtered"
         )
 
         st.markdown("### Market Share (by venue)")
@@ -538,3 +559,15 @@ for tab, name in zip(tabs, breakdowns):
             top_n=10,
             title=f"{token} {name} Market Share by Venue"
         )
+
+
+
+
+
+
+
+
+
+
+
+
