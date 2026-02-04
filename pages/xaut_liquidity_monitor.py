@@ -16,6 +16,7 @@ import ccxt
 import altair as alt
 import json
 from pathlib import Path
+from io import BytesIO
 
 try:
     from streamlit_autorefresh import st_autorefresh
@@ -67,7 +68,7 @@ def fetch_orderbook_snapshot(ccxt_id: str, symbol: str, limit: int):
     """
     ex = get_exchange(ccxt_id)
     
-    if ccxt_id == "bitfinex" and limit and limit > 100:
+    if (ccxt_id == "bitfinex" or ccxt_id == "kucoin") and limit and limit > 100:
         limit = 100
 
     try:
@@ -83,6 +84,41 @@ def fetch_orderbook_snapshot(ccxt_id: str, symbol: str, limit: int):
         "bids": ob.get("bids") or [],
         "asks": ob.get("asks") or [],
     }
+
+
+def df_to_xlsx(df: pd.DataFrame) -> BytesIO:
+    df = make_excel_safe(df)
+
+    buffer = BytesIO()
+    with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
+        df.to_excel(writer, index=False, sheet_name="XAUT Live")
+    buffer.seek(0)
+    return buffer
+
+
+
+def make_excel_safe(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+
+    for col in out.columns:
+        s = out[col]
+        dtype = s.dtype
+
+        # Case 1: Proper datetime64[ns, tz]
+        if isinstance(dtype, pd.DatetimeTZDtype):
+            out[col] = s.dt.tz_convert(None)
+
+        # Case 2: object column with tz-aware pandas Timestamps
+        elif s.dtype == "object":
+            if s.apply(lambda x: isinstance(x, pd.Timestamp) and x.tz is not None).any():
+                out[col] = s.apply(
+                    lambda x: x.tz_convert(None)
+                    if isinstance(x, pd.Timestamp) and x.tz is not None
+                    else x
+                )
+
+    return out
+
 
 
 def iter_levels(levels):
@@ -104,74 +140,6 @@ def iter_levels(levels):
                     yield p, a
         except Exception:
             continue
-
-
-# def compute_liquidity_metrics_bestpx(orderbook: dict, depth_bps_levels: list[float], depth_unit: str):
-    # """
-    # Depth definition:
-    #   - bid depth within X bps of best bid: include bids with p >= best_bid*(1 - X/10000)
-    #   - ask depth within X bps of best ask: include asks with p <= best_ask*(1 + X/10000)
-
-    # spread_bps uses mid = (best_bid + best_ask)/2
-    # depth_unit:
-    #   - "quote": sum(price*amount)
-    #   - "base": sum(amount)
-    # """
-    # bids_raw = orderbook.get("bids") or []
-    # asks_raw = orderbook.get("asks") or []
-
-    # best_bid = float("nan")
-    # best_ask = float("nan")
-
-    # for p, _a in iter_levels(bids_raw):
-    #     best_bid = p
-    #     break
-    # for p, _a in iter_levels(asks_raw):
-    #     best_ask = p
-    #     break
-
-    # if not (math.isfinite(best_bid) and math.isfinite(best_ask)) or best_bid <= 0 or best_ask <= 0:
-    #     return {
-    #         "best_bid": best_bid,
-    #         "best_ask": best_ask,
-    #         "mid": float("nan"),
-    #         "spread_bps": float("nan"),
-    #         "depth": {bps: {"bid": float("nan"), "ask": float("nan")} for bps in depth_bps_levels},
-    #     }
-
-    # mid = (best_bid + best_ask) / 2.0
-    # spread_bps = ((best_ask - best_bid) / mid) * 10_000.0 if mid > 0 else float("nan")
-
-    # def level_value(price, amount):
-    #     return (price * amount) if depth_unit == "quote" else amount
-
-    # depth_out = {}
-    # for bps in depth_bps_levels:
-    #     band = bps / 10_000.0
-    #     bid_cutoff = best_bid * (1.0 - band)
-    #     ask_cutoff = best_ask * (1.0 + band)
-
-    #     bid_depth = 0.0
-    #     for p, a in iter_levels(bids_raw):
-    #         if p < bid_cutoff:
-    #             break
-    #         bid_depth += level_value(p, a)
-
-    #     ask_depth = 0.0
-    #     for p, a in iter_levels(asks_raw):
-    #         if p > ask_cutoff:
-    #             break
-    #         ask_depth += level_value(p, a)
-
-    #     depth_out[bps] = {"bid": bid_depth, "ask": ask_depth}
-
-    # return {
-    #     "best_bid": best_bid,
-    #     "best_ask": best_ask,
-    #     "mid": mid,
-    #     "spread_bps": spread_bps,
-    #     "depth": depth_out,
-    # }
 
 def compute_liquidity_metrics(orderbook: dict, depth_bps_levels: list[float], depth_unit: str, depth_anchor: str):
     """
@@ -458,7 +426,7 @@ def liquidity_page():
         options=["Mid", "BBO"],
         index=0,
         horizontal=True,
-        help="Mid = symmetric bands around mid price. BBO = Depth bands from best bid/offer.",
+        help="Mid = symmetric bands around mid price. BBO = Depth bands from best bid/offer. ",
     )
 
     # ----------------------------
@@ -550,33 +518,29 @@ def liquidity_page():
     
     
     # Quick per-venue status (success vs error count)
-    # if selected_venues:
-    #     ok_counts = pd.Series([r["venue"] for r in rows]).value_counts()
-    #     err_counts = pd.Series([e["venue"] for e in errors]).value_counts()
+    if selected_venues:
+        ok_counts = pd.Series([r["venue"] for r in rows]).value_counts()
+        err_counts = pd.Series([e["venue"] for e in errors]).value_counts()
     
-    #     status = pd.DataFrame({
-    #         "ok_pairs": ok_counts,
-    #         "error_pairs": err_counts,
-    #     }).fillna(0).astype(int)
+        status = pd.DataFrame({
+            "ok_pairs": ok_counts,
+            "error_pairs": err_counts,
+        }).fillna(0).astype(int)
     
-    #     # include venues with 0 ok / 0 errors too
-    #     for v in selected_venues:
-    #         if v not in status.index:
-    #             status.loc[v] = {"ok_pairs": 0, "error_pairs": 0}
+        # include venues with 0 ok / 0 errors too
+        for v in selected_venues:
+            if v not in status.index:
+                status.loc[v] = {"ok_pairs": 0, "error_pairs": 0}
     
-    #     status = status.sort_index()
-    #     st.sidebar.subheader("Venue status (debug)")
-    #     st.sidebar.dataframe(status, width='content')
+        status = status.sort_index()
+        st.sidebar.subheader("Venue status (debug)")
+        st.sidebar.dataframe(status, width='content')
 
 
     # ----------------------------
     # Metrics bar directly under title
     # ----------------------------
     with metrics_placeholder:
-        # c1, c2, c3 = st.columns(3)
-        # c1.metric("Venues monitored", len(selected_venues))
-        # c2.metric("Pairs monitored", int(len(live_df)) if not live_df.empty else 0)
-        # c3.metric("Active alerts", int(live_df["alert_any"].sum()) if (not live_df.empty and "alert_any" in live_df.columns) else 0)
         
         with st.container():
             cols = st.columns([1, 1, 1, 6])  # last column is spacer
@@ -663,8 +627,20 @@ def liquidity_page():
             width="content",
             hide_index=True,
         )
+        
+        st.download_button(
+        label="Download Excel",
+        data=df_to_xlsx(live_df),
+        file_name="xaut_liquidity_live.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        key="xaut_live_xlsx_download",
+        )
+
     else:
         st.warning("No live data returned (or all venues errored).")
+        
+        
+    
 
     # ----------------------------
     # Depth ladders
@@ -812,4 +788,3 @@ def liquidity_page():
 
 if __name__ == '__main__':
     liquidity_page()
-
