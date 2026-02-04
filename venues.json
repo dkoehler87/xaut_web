@@ -2,47 +2,47 @@
   "MEXC": {
     "ccxt_id": "mexc",
     "pairs": [
-      { "symbol": "XAUT/USDT", "id": "XAUTUSDT" }
+      { "symbol": "XAUT/USDT" }
     ]
   },
   "OKX": {
     "ccxt_id": "okx",
     "pairs": [
-      { "symbol": "XAUT/USDT", "id": "XAUT-USDT" }
+      { "symbol": "XAUT/USDT" }
     ]
   },
   "Gate.io": {
     "ccxt_id": "gate",
     "pairs": [
-      { "symbol": "XAUT/USDT", "id": "XAUT_USDT" }
+      { "symbol": "XAUT/USDT" }
     ]
   },
   "Crypto.com": {
     "ccxt_id": "cryptocom",
     "pairs": [
-      { "symbol": "XAUT/USD", "id": "XAUT_USD" },
-      { "symbol": "XAUT/USDT", "id": "XAUT_USD" }
+      { "symbol": "XAUT/USD" },
+	  { "symbol": "XAUT/USDT" } 
     ]
   },
   "Kraken": {
     "ccxt_id": "kraken",
     "pairs": [
-      { "symbol": "XAUT/USD", "id": "XAUTUSD" },
-      { "symbol": "XAUT/USDT", "id": "XAUTUSDT" }
+      { "symbol": "XAUT/USD" },
+      { "symbol": "XAUT/USDT" }
     ]
   },
   "Hyperliquid": {
     "ccxt_id": "hyperliquid",
     "pairs": [
-      { "symbol": "XAUT/USDT", "id": "@209" },
-      { "symbol": "XAUT/USDC", "id": "@182" } 
+      { "symbol": "XAUT/USDT" },
+      { "symbol": "XAUT/USDC" } 
     ]
   },
   "Bitfinex": {
     "ccxt_id": "bitfinex",
     "pairs": [
-      { "symbol": "XAUT/USDT", "id": "tXAUT:USD" },
-      { "symbol": "XAUT/USD", "id": "tXAUT:USDT" }
+      { "symbol": "XAUT/USDT" },
+      { "symbol": "XAUT/USD" }
     ]
   },
     "Bybit": {
@@ -50,6 +50,23 @@
     "pairs": [
       { "symbol": "XAUT/USDT"}
     ]
+  },
+     "Bitget": {
+    "ccxt_id": "bitget",
+    "pairs": [
+      { "symbol": "XAUT/USDT"}
+    ]
+  },
+     "BingX": {
+    "ccxt_id": "bingx",
+    "pairs": [
+      { "symbol": "XAUT/USDT"}
+    ]
+  },
+     "Kucoin": {
+    "ccxt_id": "kucoin",
+    "pairs": [
+      { "symbol": "XAUT/USDT"}
+    ]
   }
 }
-
