@@ -5,5 +5,5 @@ plotly
 streamlit-autorefresh
 ccxt
 altair
-BytesIO
+io
 xlsxwriter
