@@ -347,19 +347,19 @@ coingecko_keys = get_coingecko_api_keys()
 if not coingecko_keys:
     st.warning("No CoinGecko API key found. Set COINGECKO_API_KEY_1/2 in Secrets or env vars.")
 
-@st.cache_data(ttl=600, show_spinner=False)   # 10 minutes
+@st.cache_data(ttl=43200, show_spinner=False)   # 10 minutes
 def load(api_key: str):
     return build_xaut_dataframes(coingecko_api_key=api_key)
 
-@st.cache_data(ttl=600, show_spinner=False)
+@st.cache_data(ttl=43200, show_spinner=False)
 def load2(api_key: str):
     return build_xaut0_dataframes(coingecko_api_key=api_key)
 
-@st.cache_data(ttl=600, show_spinner=False)
+@st.cache_data(ttl=43200, show_spinner=False)
 def load3(api_key: str):
     return build_usat_dataframes(coingecko_api_key=api_key)
 
-@st.cache_data(ttl=600, show_spinner=False)
+@st.cache_data(ttl=43200, show_spinner=False)
 def load_xaut_perps(api_key: str):
     return build_xaut_perps_dataframe(coingecko_api_key=api_key)
 
