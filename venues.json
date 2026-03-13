@@ -2,7 +2,7 @@
   "MEXC": {
     "ccxt_id": "mexc",
     "pairs": [
-      { "symbol": "XAUT/USDT" }
+      { "symbol": "GOLD(XAUT)/USDT" }
     ]
   },
   "OKX": {
@@ -70,3 +70,4 @@
     ]
   }
 }
+
