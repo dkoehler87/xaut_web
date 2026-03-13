@@ -11,7 +11,7 @@
       { "symbol": "XAUT/USDT" }
     ]
   },
-  "Gate.io": {
+  "Gate": {
     "ccxt_id": "gate",
     "pairs": [
       { "symbol": "XAUT/USDT" }
@@ -70,4 +70,5 @@
     ]
   }
 }
+
 
