@@ -6,3 +6,4 @@ streamlit-autorefresh
 ccxt
 altair
 xlsxwriter
+supabase
