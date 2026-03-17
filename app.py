@@ -39,17 +39,25 @@ liq_usat = st.Page(
     url_path="liquidity-monitor-usat",
 )
 
-nav = st.navigation([home, liq, liq_usat])
+hist = st.Page(
+    "pages/historical_data.py",
+    title="Historical Data",
+    url_path="historical-data",
+)
+
+nav = st.navigation([home, liq, liq_usat, hist])
 
 
 def top_nav():
-    c1, c2, c3, spacer = st.columns([1.5, 1.5, 1.5, 6])
+    c1, c2, c3, c4, spacer = st.columns([1.5, 1.7, 1.9, 1.5, 4.4])
     with c1:
         st.page_link(home, label="Market Data Viewer")
     with c2:
         st.page_link(liq, label="Liquidity Monitor - XAUT")
     with c3:
         st.page_link(liq_usat, label="Liquidity Monitor - USAT")
+    with c4:
+        st.page_link(hist, label="Historical Data")
 
 top_nav()
 st.divider()
@@ -57,6 +65,5 @@ st.divider()
 # Run the selected page and stop here so app.py doesn't render anything else.
 nav.run()
 st.stop()
-
 
 
