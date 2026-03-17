@@ -7,3 +7,4 @@ ccxt
 altair
 xlsxwriter
 supabase
+openpyxl
