@@ -1,0 +1,304 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Wed Mar 18 11:48:55 2026
+
+@author: DKOEH
+"""
+
+import requests
+import pandas as pd
+import numpy as np
+
+COIN_TICKERS_URL = "https://api.coingecko.com/api/v3/coins/{id}/tickers"
+DERIVATIVES_URL = "https://api.coingecko.com/api/v3/derivatives"
+
+
+
+def fetch_all_tickers(coin_id: str, headers: dict, **extra_params):
+    all_tickers = []
+    page = 1
+    last_data = {}
+
+    while True:
+        params = {"page": page}
+        params.update(extra_params)
+
+        resp = requests.get(
+            COIN_TICKERS_URL.format(id=coin_id),
+            headers=headers,
+            params=params,
+            timeout=30,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        last_data = data
+
+        tickers = data.get("tickers", [])
+        if not tickers:
+            break
+
+        all_tickers.extend(tickers)
+
+        # tickers are paginated to 100 items per page
+        if len(tickers) < 100:
+            break
+
+        page += 1
+
+    return {
+        "name": last_data.get("name", coin_id),
+        "tickers": all_tickers,
+    }
+
+
+def add_market_share(df: pd.DataFrame, volume_col: str = "Volume (USD)") -> pd.DataFrame:
+    out = df.copy()
+    out[volume_col] = pd.to_numeric(out[volume_col], errors="coerce")
+    total = out[volume_col].sum(skipna=True)
+
+    if total and total > 0:
+        out["Market Share"] = out[volume_col] / total
+    else:
+        out["Market Share"] = 0.0
+
+    return out
+
+
+def build_paxg_dataframes(coingecko_api_key: str = "", coin_id: str = "pax-gold"):
+    """
+    Returns: cex_df, dex_df, usdt_df, btc_df, final_df
+    """
+    headers = {"x-cg-demo-api-key": f"{coingecko_api_key}"}
+
+    # --- First pull: build DEX mapping (dex_pair_format=contract_address) ---
+    result1 = fetch_all_tickers(coin_id, headers, dex_pair_format="contract_address")
+    res_df = pd.json_normalize(result1["tickers"])
+    res_df["trading_pair"] = res_df["base"] + "/" + res_df["target"]
+    res_df = res_df.rename(
+        columns={
+            "market.name": "venue",
+            "market.identifier": "venue_id",
+            "converted_volume.usd": "usd_volume",
+        }
+    )
+    dex_dict = {
+        venue: "dex"
+        for venue in res_df.loc[res_df["trading_pair"].str.len() > 16, "venue"].unique()
+    }
+
+    # --- Second pull: include depth ---
+    result2 = fetch_all_tickers(coin_id, headers, dex_pair_format="symbol", depth="true")
+    ticker_df = pd.json_normalize(result2["tickers"])
+
+    # --- Drop rows where timestamp is older than 1 hour ---
+    ticker_df["timestamp_dt"] = pd.to_datetime(ticker_df["timestamp"], utc=True, errors="coerce")
+    cutoff = pd.Timestamp.utcnow() - pd.Timedelta(hours=1)
+    
+    ticker_df = ticker_df[ticker_df["timestamp_dt"] >= cutoff].copy()
+    
+    # cleanup helper column
+    ticker_df = ticker_df.drop(columns=["timestamp_dt"])
+
+    ticker_df["trading_pair"] = ticker_df["base"] + "/" + ticker_df["target"]
+    ticker_df = ticker_df.rename(
+        columns={
+            "market.name": "venue",
+            "market.identifier": "venue_id",
+            "converted_volume.usd": "usd_volume",
+            "bid_ask_spread_percentage": "bid_ask_spr",
+            "cost_to_move_up_usd": "ask_depth_200",
+            "cost_to_move_down_usd": "bid_depth_200",
+        }
+    )
+    ticker_df["tob_spread_bps"] = (ticker_df["bid_ask_spr"] * 100).round(2)
+
+    # Required columns (same as your script)
+    ticker_df = ticker_df[
+        [
+            "venue",
+            "trading_pair",
+            "base",
+            "target",
+            "last",
+            "volume",
+            "usd_volume",
+            "bid_ask_spr",
+            "tob_spread_bps",
+            "bid_depth_200",
+            "ask_depth_200",
+            "trust_score",
+            "timestamp",
+            "is_anomaly",
+            "is_stale",
+            "venue_id",
+        ]
+    ].copy()
+
+    # Map venue type
+    ticker_df["venue_type"] = ticker_df["venue"].map(dex_dict).fillna("cex")
+    
+    # #Fix Icrypex duplication
+    # # --- Remove duplicated icrypex XAUT/USDT rows (CoinGecko bug) ---
+    # mask = (ticker_df["venue_id"] == "icrypex") & (ticker_df["trading_pair"] == "XAUT/USDT")
+    
+    # if mask.sum() > 1:
+    #     icr = ticker_df[mask].copy()
+    #     rest = ticker_df[~mask].copy()
+    
+    #     # Keep the row with the LOWER usd_volume (the higher one is incorrect)
+    #     icr["usd_volume"] = pd.to_numeric(icr["usd_volume"], errors="coerce")
+    #     icr = (
+    #         icr.sort_values("usd_volume", ascending=True)
+    #            .head(1)
+    #     )
+    
+    #     ticker_df = pd.concat([rest, icr], ignore_index=True)
+
+
+    # # Fix Coinup volume (incorrect) - use 'volume' field
+    # ticker_df.loc[ticker_df["venue_id"] == "coinup", "usd_volume"] = (
+    #     ticker_df.loc[ticker_df["venue_id"] == "coinup", "last"]
+    #     * ticker_df.loc[ticker_df["venue_id"] == "coinup", "volume"]
+    # )
+
+    # Sort by volume
+    ticker_df = ticker_df.sort_values(["usd_volume"], ascending=False)
+
+    # Format timestamp like you do
+    ticker_df["timestamp"] = (
+        ticker_df["timestamp"]
+        .astype("string")
+        .str[:-6]
+        .str.replace("T", " ", regex=False)
+    )
+
+    final_df = ticker_df[
+        [
+            "timestamp",
+            "venue",
+            "trading_pair",
+            "base",
+            "target",
+            "last",
+            "volume",
+            "usd_volume",
+            "tob_spread_bps",
+            "bid_depth_200",
+            "ask_depth_200",
+            "trust_score",
+            "venue_type",
+        ]
+    ].copy()
+
+    final_df.columns = ['Timestamp', 'Venue', 'Trading Pair', 'Base', 'Quote', 'Last', 'Volume', 'Volume (USD)', 'TOB Spread (bps)', 'Bid Depth (200 bps)', 'Ask Depth (200 bps)', 'Trust Score', 'Venue Type']
+
+    # Split into your 4 outputs
+    # cex_df = final_df[final_df["Venue Type"] == "cex"].copy()
+    # dex_df = final_df[final_df["Venue Type"] == "dex"].copy()
+    # usdt_df = cex_df[cex_df["Quote"] == "USDT"].copy()
+    # btc_df = cex_df[(cex_df["Base"] == "BTC") | (cex_df["Quote"] == "BTC")].copy()
+    # usd_df = cex_df[cex_df['Quote']=='USD'].copy()
+
+    
+    # cex_df = add_market_share(cex_df)
+    # dex_df = add_market_share(dex_df)
+    # usdt_df = add_market_share(usdt_df)
+    # btc_df = add_market_share(btc_df)
+    # usd_df = add_market_share(usd_df)
+
+    
+    all_df = add_market_share(final_df)
+
+
+    return all_df
+
+
+def build_paxg_perps_dataframe(coingecko_api_key: str = "", underlying: str = "PAXG") -> pd.DataFrame:
+    """
+    Pull perpetuals from CoinGecko /derivatives and filter for the given underlying (default: PAXG).
+    Returns a dataframe shaped similarly to your spot viewer.
+    """
+    headers = {"x-cg-demo-api-key": f"{coingecko_api_key}"}
+
+    resp = requests.get(DERIVATIVES_URL, headers=headers, timeout=30)
+    resp.raise_for_status()
+    rows = resp.json()  # list[dict]
+
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return pd.DataFrame(columns=[
+            "Venue","Trading Pair","Base","Quote","Last","Volume (USD)",
+            "TOB Spread (bps)",
+            "Venue Type","Market Share",
+            "Funding Rate","Open Interest","Index","Basis","Contract Type"
+        ])
+
+
+    # Normalize + filter
+    df["index_id"] = df.get("index_id", "").astype(str)
+    df["symbol"] = df.get("symbol", "").astype(str)
+    df["contract_type"] = df.get("contract_type", "").astype(str)
+
+    u = underlying.upper()
+
+    # Prefer index_id exact match; fallback to symbol contains
+    mask_u = df["index_id"].str.upper().eq(u) | df["symbol"].str.upper().str.contains(u, na=False)
+    df = df[mask_u].copy()
+
+    # Keep perpetuals only
+    df = df[df["contract_type"].str.lower().eq("perpetual")].copy()
+
+    if df.empty:
+        return pd.DataFrame(columns=[
+            "Venue","Trading Pair","Base","Quote","Last","Volume (USD)",
+            "TOB Spread (bps)",
+            "Venue Type","Market Share",
+            "Funding Rate","Open Interest","Index","Basis","Contract Type"
+        ])
+
+
+    out = pd.DataFrame()
+    out["Venue"] = df.get("market", "").astype(str)
+    out["Trading Pair"] = df.get("symbol", "").astype(str)
+    out["Base"] = df.get("index_id", "").astype(str).str.upper()
+
+    # Quote: best-effort parse from symbol
+    sym_u = out["Trading Pair"].str.upper()
+    out["Quote"] = ""
+    out.loc[sym_u.str.contains("USDT", na=False), "Quote"] = "USDT"
+    out.loc[(sym_u.str.contains("USD", na=False)) & (~sym_u.str.contains("USDT", na=False)), "Quote"] = "USD"
+    out.loc[sym_u.str.contains("BTC", na=False), "Quote"] = "BTC"
+
+    out["Last"] = pd.to_numeric(df.get("price"), errors="coerce")
+
+    # CoinGecko derivatives endpoint provides 24h volume (often already USD). We'll treat it as USD.
+    out["Volume (USD)"] = pd.to_numeric(df.get("volume_24h"), errors="coerce")
+
+    # Spread: can be percent-ish or absolute depending on venue. Convert to bps heuristically.
+    spread_raw = pd.to_numeric(df.get("spread"), errors="coerce")
+    price = pd.to_numeric(df.get("price"), errors="coerce").replace(0, pd.NA)
+    
+    # TOB Spread (bps) = spread / price / 0.0001 = (spread / price) * 10000
+    out["TOB Spread (bps)"] = ((spread_raw / price) * 10000).round(2)
+
+
+    # Keep compatible with your CEX/DEX breakdown logic
+    out["Venue Type"] = "cex"
+
+    # Extra perps-specific fields
+    out["Funding Rate"] = pd.to_numeric(df.get("funding_rate"), errors="coerce")
+    out["Open Interest"] = pd.to_numeric(df.get("open_interest"), errors="coerce")
+    out["Index"] = pd.to_numeric(df.get("index"), errors="coerce")
+    out["Basis"] = pd.to_numeric(df.get("basis"), errors="coerce")
+    out["Contract Type"] = df.get("contract_type", "").astype(str)
+
+    out = out.sort_values("Volume (USD)", ascending=False)
+    out = add_market_share(out, volume_col="Volume (USD)")
+    
+    return out
+
+    
+
+    
+    
+
