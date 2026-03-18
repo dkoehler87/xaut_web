@@ -8,6 +8,7 @@ Created on Fri Dec 19 12:22:45 2025
 import pandas as pd
 import streamlit as st
 from xaut_data import build_xaut_dataframes, build_xaut_perps_dataframe
+from paxg_data import build_paxg_dataframes, build_paxg_perps_dataframe
 from xaut0_data import build_xaut0_dataframes
 from usat_data import build_usat_dataframes
 import plotly.express as px
@@ -360,8 +361,17 @@ def load3(api_key: str):
     return build_usat_dataframes(coingecko_api_key=api_key)
 
 @st.cache_data(ttl=43200, show_spinner=False)
+def load4(api_key: str):
+    return build_paxg_dataframes(coingecko_api_key=api_key)
+
+@st.cache_data(ttl=43200, show_spinner=False)
 def load_xaut_perps(api_key: str):
     return build_xaut_perps_dataframe(coingecko_api_key=api_key)
+
+@st.cache_data(ttl=43200, show_spinner=False)
+def load_paxg_perps(api_key: str):
+    return build_paxg_perps_dataframe(coingecko_api_key=api_key)
+
 
 
 if refresh:
@@ -371,16 +381,18 @@ if refresh:
 try:
     if "data_bundle" not in st.session_state:
         with st.spinner("Loading data..."):
-            cex_df, dex_df, usdt_df, btc_df, usd_df, final_df = run_with_cg_backoff(load,  coingecko_keys, "xaut")
+            xaut_df = run_with_cg_backoff(load,  coingecko_keys, "xaut")
             xaut0_df = run_with_cg_backoff(load2, coingecko_keys, "xaut0")
             usat_df  = run_with_cg_backoff(load3, coingecko_keys, "usat")
+            paxg_df = run_with_cg_backoff(load4, coingecko_keys, "paxg")
             xaut_perps_df = run_with_cg_backoff(load_xaut_perps, coingecko_keys, "xaut_perps")
+            paxg_perps_df = run_with_cg_backoff(load_paxg_perps, coingecko_keys, "paxg_perps")
 
         st.session_state["data_bundle"] = (
-            cex_df, dex_df, usdt_df, btc_df, usd_df, final_df, xaut0_df, usat_df, xaut_perps_df
+            xaut_df, xaut0_df, usat_df, paxg_df, xaut_perps_df, paxg_perps_df
         )
 
-    (cex_df, dex_df, usdt_df, btc_df, usd_df, final_df, xaut0_df, usat_df, xaut_perps_df) = st.session_state["data_bundle"]
+    (xaut_df, xaut0_df, usat_df, paxg_df, xaut_perps_df, paxg_perps_df) = st.session_state["data_bundle"]
 
 except Exception as e:
     st.error("App crashed while loading data. Here is the exception:")
@@ -391,7 +403,7 @@ except Exception as e:
 # --- Token selector (3 buttons) ---
 token = st.segmented_control(
     "Token",
-    options=["XAUT", "XAUT0", "USAT"],
+    options=["XAUT", "XAUT0", "USAT","PAXG"],
     default="XAUT",
 )
 
@@ -404,21 +416,23 @@ market_type = st.segmented_control(
 
 if market_type == "Spot":
     token_to_df = {
-        "XAUT": final_df,
+        "XAUT": xaut_df,
         "XAUT0": xaut0_df,
         "USAT": usat_df,
+        "PAXG": paxg_df
     }
 else:
     token_to_df = {
         "XAUT": xaut_perps_df,
         "XAUT0": xaut0_df.iloc[0:0],  # empty
         "USAT": usat_df.iloc[0:0],    # empty
+        "PAXG": paxg_perps_df,
     }
 
 base_df = token_to_df[token]
 
-if market_type == "Perpetuals" and token != "XAUT":
-    st.info("Perpetuals are only available for XAUT via CoinGecko.")
+if market_type == "Perpetuals" and (token == "XAUT0" or token == "USAT"):
+    st.info("Perpetuals are only available for XAUT or PAXG via CoinGecko.")
 
 
 # ----------------------------
@@ -435,9 +449,10 @@ if market_type == "Spot":
         set(
             pd.concat(
                 [
-                    final_df.get("Venue", pd.Series(dtype=str)).dropna().astype(str),
+                    xaut_df.get("Venue", pd.Series(dtype=str)).dropna().astype(str),
                     xaut0_df.get("Venue", pd.Series(dtype=str)).dropna().astype(str),
                     usat_df.get("Venue", pd.Series(dtype=str)).dropna().astype(str),
+                    paxg_df.get("Venue", pd.Series(dtype=str)).dropna().astype(str),
                 ],
                 ignore_index=True
             ).unique().tolist()
@@ -448,7 +463,13 @@ else:
     # Perps venue universe ONLY
     all_venues = sorted(
         set(
-            xaut_perps_df.get("Venue", pd.Series(dtype=str)).dropna().astype(str).unique().tolist()
+            pd.concat(
+                [
+                    xaut_perps_df.get("Venue", pd.Series(dtype=str)).dropna().astype(str),
+                    paxg_perps_df.get("Venue", pd.Series(dtype=str)).dropna().astype(str),
+                ],
+                ignore_index=True
+            ).unique().tolist()
         )
     )
     widget_key = "excluded_venues_perps"
@@ -559,7 +580,6 @@ for tab, name in zip(tabs, breakdowns):
             top_n=10,
             title=f"{token} {name} Market Share by Venue"
         )
-
 
 
 
