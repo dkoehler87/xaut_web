@@ -37,6 +37,12 @@
       { "symbol": "USAT/USDT"}
     ]
   },
+    "HTX": {
+    "ccxt_id": "htx",
+    "pairs": [
+      { "symbol": "USAT/USDT"}
+    ]
+  },
      "Bitfinex": {
     "ccxt_id": "bitfinex",
     "pairs": [
