@@ -70,7 +70,7 @@ def fetch_orderbook_snapshot(ccxt_id: str, symbol: str, limit: int):
     if (ccxt_id == "bitfinex" or ccxt_id == "kucoin") and limit and limit > 100:
         limit = 100
 
-    if ccxt_id = "htx":
+    if ccxt_id == "htx":
         limit = 150
     
     try:
