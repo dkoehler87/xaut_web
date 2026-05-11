@@ -568,7 +568,7 @@ for tab, name in zip(tabs, breakdowns):
         st.download_button(
             "Download Excel",
             dataframe_to_xlsx(filtered),
-            "filtered_data.xlsx",
+            f"{token}_{market_type}_{name}_cg_data.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             key = f"{token} {name} filtered"
         )
