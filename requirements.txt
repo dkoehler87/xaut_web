@@ -8,3 +8,4 @@ altair
 xlsxwriter
 supabase
 openpyxl
+tastytrade
