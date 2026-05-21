@@ -49,5 +49,11 @@
       { "symbol": "USAT/USDT"},
 	  { "symbol": "USAT/USD"}
     ]
-  }
+  },
+     "Gemini": {
+    "ccxt_id": "gemini",
+    "pairs": [
+	  { "symbol": "USAT/USD"}
+    ]
+  }  
 }
