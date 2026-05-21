@@ -68,7 +68,13 @@
     "pairs": [
       { "symbol": "XAUT/USDT"}
     ]
-  }
+  },
+     "Gemini": {
+    "ccxt_id": "gemini",
+    "pairs": [
+      { "symbol": "XAUT/USD"}
+    ]
+  }  
 }
 
 
