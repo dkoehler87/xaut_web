@@ -51,11 +51,17 @@ xaut_gold = st.Page(
     url_path="xaut-vs-gold",
 )
 
-nav = st.navigation([home, liq, liq_usat, hist, xaut_gold])
+market_lookup = st.Page(
+    "pages/market_lookup.py",
+    title="Market Lookup",
+    url_path="market-lookup",
+)
+
+nav = st.navigation([home, liq, liq_usat, hist, xaut_gold, market_lookup])
 
 
 def top_nav():
-    c1, c2, c3, c4, c5, spacer = st.columns([1.5, 1.7, 1.9, 1.5, 1.3, 3.1])
+    c1, c2, c3, c4, c5, c6, spacer = st.columns([1.5, 1.7, 1.9, 1.5, 1.3, 1.5, 3.1])
     with c1:
         st.page_link(home, label="Market Data Viewer")
     with c2:
@@ -66,6 +72,8 @@ def top_nav():
         st.page_link(hist, label="Historical Data")
     with c5:
         st.page_link(xaut_gold, label="XAUT vs. Gold")
+    with c6:
+        st.page_link(market_lookup, label="Market Lookup")
 
 top_nav()
 st.divider()
