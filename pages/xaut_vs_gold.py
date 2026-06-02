@@ -1,32 +1,13 @@
 # -*- coding: utf-8 -*-
 """
-Streamlit live dashboard: COMEX front-month gold future vs XAUT/USDT across venues.
+Streamlit live dashboard
 
-Feeds:
-    - COMEX front-month gold future
-    - Bitget XAUT/USDT via native public websocket
-    - Bitfinex XAUT/USDT via native public websocket
-    - Gate XAUT/USDT via native public websocket
-    - OKX XAUT/USDT via native public websocket
-    - SOFR via FRED CSV, used to infer a simple COMEX-implied spot price
-
-
-Install:
-    pip install streamlit pandas plotly tastytrade websockets requests
-
-Important:
-    The COMEX-implied spot calculation uses a simplified cost-of-carry model:
-        spot = future_mid / exp(SOFR * years_to_expiry)
-    It ignores storage, lease rates, convenience yield, and delivery frictions.
 """
 
 from __future__ import annotations
 
 import asyncio
-import csv
-import io
 import json
-import math
 import os
 import threading
 import time
@@ -51,7 +32,7 @@ from tastytrade.dxfeed import Quote
 # Defaults
 # =============================================================================
 
-DEFAULT_COMEX_SYMBOL = "/GCM26:XCEC"
+DEFAULT_COMEX_SYMBOL = "/GCQ26:XCEC"  # August 2026 GC contract.
 DEFAULT_MAX_POINTS = 1800
 DEFAULT_INTERVAL_SEC = 3.0
 DEFAULT_REFRESH_MS = 3000
@@ -68,7 +49,13 @@ GATE_PAIR = "XAUT_USDT"
 OKX_WS_URL = "wss://ws.okx.com:8443/ws/v5/public"
 OKX_INST_ID = "XAUT-USDT"
 
-FRED_SOFR_CSV_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=SOFR"
+BYBIT_WS_URL = "wss://stream.bybit.com/v5/public/spot"
+BYBIT_XAUT_SYMBOL = "XAUTUSDT"
+BYBIT_USDC_SYMBOL = "USDCUSDT"
+
+OANDA_DEFAULT_STREAM_URL = "https://stream-fxpractice.oanda.com"
+OANDA_INSTRUMENT = "XAU_USD"
+
 MONTH_CODES = {
     "F": 1, "G": 2, "H": 3, "J": 4, "K": 5, "M": 6,
     "N": 7, "Q": 8, "U": 9, "V": 10, "X": 11, "Z": 12,
@@ -78,6 +65,8 @@ MONTH_NAMES = {
     5: "May", 6: "June", 7: "July", 8: "August",
     9: "September", 10: "October", 11: "November", 12: "December",
 }
+VENUES = ["Bitget", "Bitfinex", "Gate", "OKX", "Bybit"]
+VENUE_KEYS = ["bitget", "bitfinex", "gate", "okx", "bybit"]
 
 
 # =============================================================================
@@ -102,25 +91,29 @@ class MarketState:
     gc_symbol: str = DEFAULT_COMEX_SYMBOL
     bitget_inst_id: str = BITGET_INST_ID
     bitfinex_symbol: str = BITFINEX_SYMBOL
-    bitfinex_symbols_tried: set = field(default_factory=set)
     gate_pair: str = GATE_PAIR
     okx_inst_id: str = OKX_INST_ID
+    bybit_xaut_symbol: str = BYBIT_XAUT_SYMBOL
+    bybit_usdc_symbol: str = BYBIT_USDC_SYMBOL
 
     latest_gc_bid: Optional[float] = None
     latest_gc_ask: Optional[float] = None
     latest_gc_mid: Optional[float] = None
     latest_gc_time: Optional[datetime] = None
 
-    sofr_rate_pct: Optional[float] = None
-    sofr_rate_decimal: Optional[float] = None
-    sofr_date: Optional[date] = None
-    sofr_last_fetch: Optional[datetime] = None
+    latest_oanda_bid: Optional[float] = None
+    latest_oanda_ask: Optional[float] = None
+    latest_oanda_mid: Optional[float] = None
+    latest_oanda_time: Optional[datetime] = None
+
+    bybit_usdc_quote: VenueQuote = field(default_factory=VenueQuote)
 
     quotes: Dict[str, VenueQuote] = field(default_factory=lambda: {
         "Bitget": VenueQuote(),
         "Bitfinex": VenueQuote(),
         "Gate": VenueQuote(),
         "OKX": VenueQuote(),
+        "Bybit": VenueQuote(),
     })
 
     rows: deque = field(default_factory=lambda: deque(maxlen=DEFAULT_MAX_POINTS))
@@ -173,6 +166,22 @@ def float_mid(bid, ask) -> Optional[float]:
     return (bid_f + ask_f) / 2
 
 
+def normalized_xaut_price(price: Optional[float], usdcusdt_mid: Optional[float]) -> Optional[float]:
+    """Convert USDT-quoted XAUT into an approximate USD/USDC-normalized price.
+
+    User requested multiplying XAUT/USDT by the inverse of Bybit USDC/USDT.
+    """
+    if price is None or usdcusdt_mid is None or usdcusdt_mid == 0:
+        return None
+    return price * (1.0 / usdcusdt_mid)
+
+
+def premium_bps(price: Optional[float], reference: Optional[float]) -> Optional[float]:
+    if price is None or reference is None or reference == 0:
+        return None
+    return ((price - reference) / reference) * 10000
+
+
 def get_secret_any(*names: str, default: str = "") -> str:
     """Return first populated value from Streamlit secrets or environment variables."""
     for name in names:
@@ -188,11 +197,6 @@ def get_secret_any(*names: str, default: str = "") -> str:
             return val
 
     return default
-
-
-def get_secret(name: str, default: str = "") -> str:
-    # Backwards-compatible helper for any existing single-name callers.
-    return get_secret_any(name, default=default)
 
 
 def require_xaut_page_password() -> None:
@@ -221,9 +225,8 @@ def require_xaut_page_password() -> None:
 
 
 def parse_gc_month_year(symbol: str) -> Tuple[int, int]:
-    """Parse a TT-style future symbol like /GCM26:XCEC into month/year."""
+    """Parse a TT-style future symbol like /GCQ26:XCEC into month/year."""
     core = symbol.split(":", 1)[0].replace("/", "")
-    # GC + month code + 2-digit year, e.g. GCM26
     month_code = core[2].upper()
     year_2 = int(core[3:5])
     month = MONTH_CODES[month_code]
@@ -256,7 +259,7 @@ def gc_expiry_date(symbol: str) -> Optional[date]:
 
 
 def gc_contract_month_name(symbol: str) -> str:
-    """Return the COMEX contract month name, e.g. /GCM26:XCEC -> June."""
+    """Return the COMEX contract month name, e.g. /GCQ26:XCEC -> August."""
     try:
         month, _year = parse_gc_month_year(symbol)
         return MONTH_NAMES.get(month, "")
@@ -275,54 +278,12 @@ def days_to_expiry(symbol: str) -> Optional[int]:
         return None
 
 
-def years_to_expiry(symbol: str) -> Optional[float]:
-    try:
-        expiry = gc_expiry_date(symbol)
-        if expiry is None:
-            return None
-        days = (expiry - datetime.now().date()).days
-        return max(days, 0) / 365.0
-    except Exception:
-        return None
-
-
-def comex_implied_spot(future_mid: Optional[float], sofr_decimal: Optional[float], t_years: Optional[float]) -> Optional[float]:
-    if future_mid is None or sofr_decimal is None or t_years is None:
-        return None
-    try:
-        return future_mid / math.exp(sofr_decimal * t_years)
-    except Exception:
-        return None
-
-
-def get_latest_sofr_from_fred() -> Tuple[Optional[date], Optional[float]]:
-    """Fetch latest non-empty SOFR observation from FRED CSV. Returns date and rate as percent."""
-    resp = requests.get(FRED_SOFR_CSV_URL, timeout=10)
-    resp.raise_for_status()
-    reader = csv.DictReader(io.StringIO(resp.text))
-
-    latest_date = None
-    latest_value = None
-    for row in reader:
-        value = row.get("SOFR")
-        obs_date = row.get("observation_date")
-        if not value or value == "." or not obs_date:
-            continue
-        try:
-            latest_date = datetime.strptime(obs_date, "%Y-%m-%d").date()
-            latest_value = float(value)
-        except Exception:
-            continue
-
-    return latest_date, latest_value
-
-
 # =============================================================================
-# Background async streams
+# Background streams
 # =============================================================================
 
 async def stream_comex(state: MarketState, client_secret: str, refresh_token: str) -> None:
-    """Stream COMEX quote updates"""
+    """Stream COMEX quote updates."""
     try:
         session = Session(client_secret, refresh_token)
     except Exception as e:
@@ -362,20 +323,78 @@ async def stream_comex(state: MarketState, client_secret: str, refresh_token: st
             await asyncio.sleep(5)
 
 
-async def refresh_sofr_loop(state: MarketState, refresh_seconds: int = 1800) -> None:
+def stream_oanda_spot_blocking(
+    state: MarketState,
+    api_key: str,
+    account_id: str,
+    stream_url: str,
+    instrument: str = OANDA_INSTRUMENT,
+) -> None:
+    """Blocking OANDA streaming loop. Run inside asyncio.to_thread()."""
+    if not api_key or not account_id:
+        state.log("Missing OANDA credentials. Set OANDA_DEMO_API_KEY/OANDA_DEMO_ACCOUNT_ID or OANDA_API_KEY/OANDA_ACCOUNT_ID.")
+        return
+
+    url = f"{stream_url.rstrip('/')}/v3/accounts/{account_id}/pricing/stream"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Accept-Datetime-Format": "RFC3339",
+    }
+    params = {"instruments": instrument, "snapshot": "true"}
+
     while state.running:
         try:
-            obs_date, rate_pct = await asyncio.to_thread(get_latest_sofr_from_fred)
-            with state.lock:
-                state.sofr_date = obs_date
-                state.sofr_rate_pct = rate_pct
-                state.sofr_rate_decimal = rate_pct / 100.0 if rate_pct is not None else None
-                state.sofr_last_fetch = datetime.now()
-            if rate_pct is not None:
-                state.log(f"Fetched SOFR {rate_pct:.4f}% for {obs_date}")
+            state.log(f"Connecting OANDA pricing stream {instrument}")
+            with requests.get(url, headers=headers, params=params, stream=True, timeout=30) as r:
+                r.raise_for_status()
+                state.log(f"Subscribed OANDA {instrument}")
+
+                for line in r.iter_lines():
+                    if not state.running:
+                        break
+                    if not line:
+                        continue
+
+                    try:
+                        msg = json.loads(line.decode("utf-8"))
+                    except Exception:
+                        continue
+
+                    if msg.get("type") == "HEARTBEAT":
+                        continue
+                    if msg.get("type") != "PRICE":
+                        continue
+
+                    bids = msg.get("bids") or []
+                    asks = msg.get("asks") or []
+                    if not bids or not asks:
+                        continue
+
+                    bid = safe_float(bids[0].get("price"))
+                    ask = safe_float(asks[0].get("price"))
+                    mid = float_mid(bid, ask)
+                    if mid is None:
+                        continue
+
+                    raw_time = msg.get("time")
+                    try:
+                        tick_time = datetime.fromisoformat(raw_time.replace("Z", "+00:00")).replace(tzinfo=None) if raw_time else datetime.now()
+                    except Exception:
+                        tick_time = datetime.now()
+
+                    with state.lock:
+                        state.latest_oanda_bid = bid
+                        state.latest_oanda_ask = ask
+                        state.latest_oanda_mid = mid
+                        state.latest_oanda_time = tick_time
+
         except Exception as e:
-            state.log(f"SOFR fetch error: {e}")
-        await asyncio.sleep(refresh_seconds)
+            state.log(f"OANDA stream error: {e}; reconnecting in 5s")
+            time.sleep(5)
+
+
+async def stream_oanda_spot(state: MarketState, api_key: str, account_id: str, stream_url: str) -> None:
+    await asyncio.to_thread(stream_oanda_spot_blocking, state, api_key, account_id, stream_url)
 
 
 async def bitget_ping_loop(ws, state: MarketState) -> None:
@@ -446,35 +465,17 @@ async def stream_bitget_xaut(state: MarketState) -> None:
 
 
 def normalize_bitfinex_symbol(raw_symbol: str) -> str:
-    """Return a Bitfinex v2 websocket trading symbol.
-
-    Bitfinex v2 trading-pair websocket symbols must start with `t`.
-    For pairs where the base/quote length is not the usual 3+3 format,
-    Bitfinex uses a colon delimiter, e.g. `tXAUT:UST`.
-
-    The UI displays XAUt/USDt as XAUT:UST; sending bare `XAUTUST` causes
-    Bitfinex to strip the first character and interpret the pair as `AUTUST`,
-    which is why the API returns code 10300.
-    """
     s = (raw_symbol or "").strip().upper().replace("/", ":")
     if not s:
         return BITFINEX_SYMBOL
-
-    # User may type XAUTUST because that is the compact exchange display format.
-    # The websocket needs the type prefix and colon for this non-3-letter base.
-    if s in {"XAUTUST", "XAUTUSDT", "XAUTUST", "XAUTUSDT"}:
+    if s in {"XAUTUST", "XAUTUSDT"}:
         return "tXAUT:UST"
-
     if s in {"XAUT:UST", "XAUT:USDT", "XAUT/USD", "XAUT:USD"}:
-        # Bitfinex's USDt ticker code is UST; XAUT/USD is separate and can be set manually as tXAUT:USD.
         return "tXAUT:UST" if "UST" in s or "USDT" in s else "tXAUT:USD"
-
     if s.startswith("T"):
         return "t" + s[1:]
-
     if ":" in s:
         return "t" + s
-
     return "t" + s
 
 
@@ -488,8 +489,7 @@ async def stream_bitfinex_xaut(state: MarketState) -> None:
                 close_timeout=5,
                 max_queue=1000,
             ) as ws:
-                user_symbol = state.bitfinex_symbol.strip()
-                symbol = normalize_bitfinex_symbol(user_symbol)
+                symbol = normalize_bitfinex_symbol(state.bitfinex_symbol.strip())
                 await ws.send(json.dumps({"event": "subscribe", "channel": "ticker", "symbol": symbol}))
                 state.log(f"Subscribed Bitfinex ticker {symbol}")
 
@@ -504,12 +504,10 @@ async def stream_bitfinex_xaut(state: MarketState) -> None:
                     if isinstance(msg, dict):
                         event = msg.get("event")
                         if event == "subscribed":
-                            subscribed_symbol = msg.get("symbol") or symbol
-                            state.log(f"Bitfinex subscription confirmed: {subscribed_symbol}")
+                            state.log(f"Bitfinex subscription confirmed: {msg.get('symbol') or symbol}")
                             continue
                         if event == "error":
                             state.log(f"Bitfinex error for {symbol}: {msg}")
-                            # Do not tight-loop the same invalid symbol forever.
                             await asyncio.sleep(10)
                             break
                         continue
@@ -520,8 +518,6 @@ async def stream_bitfinex_xaut(state: MarketState) -> None:
                     if payload == "hb" or not isinstance(payload, list) or len(payload) < 10:
                         continue
 
-                    # Ticker payload for trading pairs:
-                    # [BID, BID_SIZE, ASK, ASK_SIZE, DAILY_CHANGE, DAILY_CHANGE_PERC, LAST_PRICE, VOLUME, HIGH, LOW]
                     bid = safe_float(payload[0])
                     bid_size = safe_float(payload[1])
                     ask = safe_float(payload[2])
@@ -642,64 +638,157 @@ async def stream_okx_xaut(state: MarketState) -> None:
             await asyncio.sleep(5)
 
 
+async def stream_bybit_spot(state: MarketState) -> None:
+    """Stream Bybit XAUT/USDT and USDC/USDT top-of-book using orderbook.1."""
+    while state.running:
+        try:
+            async with websockets.connect(
+                BYBIT_WS_URL,
+                ping_interval=20,
+                ping_timeout=20,
+                close_timeout=5,
+                max_queue=1000,
+            ) as ws:
+                xaut_symbol = state.bybit_xaut_symbol.strip().upper()
+                usdc_symbol = state.bybit_usdc_symbol.strip().upper()
+                topics = [f"orderbook.1.{xaut_symbol}", f"orderbook.1.{usdc_symbol}"]
+                await ws.send(json.dumps({"op": "subscribe", "args": topics}))
+                state.log(f"Subscribed Bybit {', '.join(topics)}")
+
+                async for raw_msg in ws:
+                    if not state.running:
+                        break
+                    try:
+                        msg = json.loads(raw_msg)
+                    except json.JSONDecodeError:
+                        continue
+
+                    if msg.get("op") == "subscribe":
+                        if not msg.get("success", False):
+                            state.log(f"Bybit subscription response: {msg}")
+                        continue
+                    if msg.get("op") == "ping" or msg.get("op") == "pong":
+                        continue
+
+                    topic = msg.get("topic") or ""
+                    data = msg.get("data") or {}
+                    bids = data.get("b") or []
+                    asks = data.get("a") or []
+                    if not bids or not asks:
+                        continue
+
+                    bid = safe_float(bids[0][0])
+                    bid_size = safe_float(bids[0][1])
+                    ask = safe_float(asks[0][0])
+                    ask_size = safe_float(asks[0][1])
+                    mid = float_mid(bid, ask)
+                    ts_ms = safe_float(msg.get("ts"))
+                    tick_time = datetime.fromtimestamp(ts_ms / 1000) if ts_ms else datetime.now()
+                    if mid is None:
+                        continue
+
+                    with state.lock:
+                        if topic.endswith(f".{xaut_symbol}"):
+                            state.quotes["Bybit"] = VenueQuote(bid, ask, mid, None, bid_size, ask_size, tick_time)
+                        elif topic.endswith(f".{usdc_symbol}"):
+                            state.bybit_usdc_quote = VenueQuote(bid, ask, mid, None, bid_size, ask_size, tick_time)
+
+        except Exception as e:
+            state.log(f"Bybit websocket error: {e}; reconnecting in 5s")
+            await asyncio.sleep(5)
+
+
 async def aggregate_rows(state: MarketState, interval_sec: float) -> None:
     while state.running:
         with state.lock:
             gc_mid = state.latest_gc_mid
             gc_bid = state.latest_gc_bid
             gc_ask = state.latest_gc_ask
-            sofr_rate_decimal = state.sofr_rate_decimal
-            sofr_rate_pct = state.sofr_rate_pct
-            sofr_date = state.sofr_date
-            t_years = years_to_expiry(state.gc_symbol)
-            spot = comex_implied_spot(gc_mid, sofr_rate_decimal, t_years)
+            oanda_mid = state.latest_oanda_mid
+            oanda_bid = state.latest_oanda_bid
+            oanda_ask = state.latest_oanda_ask
+            bybit_usdc_mid = state.bybit_usdc_quote.mid
             quotes = {k: v for k, v in state.quotes.items()}
 
-            if gc_mid is not None:
+            if gc_mid is not None or oanda_mid is not None or any(q.mid is not None for q in quotes.values()):
                 row = {
                     "time": datetime.now(),
                     "gc_mid": gc_mid,
                     "gc_bid": gc_bid,
                     "gc_ask": gc_ask,
-                    "sofr_pct": sofr_rate_pct,
-                    "sofr_date": sofr_date,
-                    "years_to_expiry": t_years,
-                    "comex_spot": spot,
+                    "oanda_spot_mid": oanda_mid,
+                    "oanda_spot_bid": oanda_bid,
+                    "oanda_spot_ask": oanda_ask,
+                    "bybit_usdcusdt_mid": bybit_usdc_mid,
+                    "bybit_usdcusdt_bid": state.bybit_usdc_quote.bid,
+                    "bybit_usdcusdt_ask": state.bybit_usdc_quote.ask,
                 }
 
                 for venue, q in quotes.items():
                     prefix = venue.lower()
+                    norm_mid = normalized_xaut_price(q.mid, bybit_usdc_mid)
+                    norm_bid = normalized_xaut_price(q.bid, bybit_usdc_mid)
+                    norm_ask = normalized_xaut_price(q.ask, bybit_usdc_mid)
+
                     row[f"{prefix}_mid"] = q.mid
                     row[f"{prefix}_bid"] = q.bid
                     row[f"{prefix}_ask"] = q.ask
                     row[f"{prefix}_last"] = q.last
-                    row[f"{prefix}_premium_vs_future_usd"] = q.mid - gc_mid if q.mid is not None else None
-                    row[f"{prefix}_premium_vs_future_bps"] = ((q.mid - gc_mid) / gc_mid) * 10000 if q.mid is not None and gc_mid else None
-                    row[f"{prefix}_premium_vs_spot_usd"] = q.mid - spot if q.mid is not None and spot is not None else None
-                    row[f"{prefix}_premium_vs_spot_bps"] = ((q.mid - spot) / spot) * 10000 if q.mid is not None and spot else None
+                    row[f"{prefix}_normalized_mid"] = norm_mid
+                    row[f"{prefix}_normalized_bid"] = norm_bid
+                    row[f"{prefix}_normalized_ask"] = norm_ask
+                    row[f"{prefix}_premium_vs_future_usd"] = norm_mid - gc_mid if norm_mid is not None and gc_mid is not None else None
+                    row[f"{prefix}_premium_vs_future_bps"] = premium_bps(norm_mid, gc_mid)
+                    row[f"{prefix}_premium_vs_spot_usd"] = norm_mid - oanda_mid if norm_mid is not None and oanda_mid is not None else None
+                    row[f"{prefix}_premium_vs_spot_bps"] = premium_bps(norm_mid, oanda_mid)
 
                 state.rows.append(row)
 
         await asyncio.sleep(interval_sec)
 
 
-async def run_streams(state: MarketState, client_secret: str, refresh_token: str, interval_sec: float) -> None:
+async def run_streams(
+    state: MarketState,
+    client_secret: str,
+    refresh_token: str,
+    interval_sec: float,
+    oanda_api_key: str,
+    oanda_account_id: str,
+    oanda_stream_url: str,
+) -> None:
     await asyncio.gather(
         stream_comex(state, client_secret, refresh_token),
+        stream_oanda_spot(state, oanda_api_key, oanda_account_id, oanda_stream_url),
         stream_bitget_xaut(state),
         stream_bitfinex_xaut(state),
         stream_gate_xaut(state),
         stream_okx_xaut(state),
-        refresh_sofr_loop(state),
+        stream_bybit_spot(state),
         aggregate_rows(state, interval_sec),
     )
 
 
-def background_runner(state: MarketState, client_secret: str, refresh_token: str, interval_sec: float) -> None:
+def background_runner(
+    state: MarketState,
+    client_secret: str,
+    refresh_token: str,
+    interval_sec: float,
+    oanda_api_key: str,
+    oanda_account_id: str,
+    oanda_stream_url: str,
+) -> None:
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
-        loop.run_until_complete(run_streams(state, client_secret, refresh_token, interval_sec))
+        loop.run_until_complete(run_streams(
+            state,
+            client_secret,
+            refresh_token,
+            interval_sec,
+            oanda_api_key,
+            oanda_account_id,
+            oanda_stream_url,
+        ))
     except Exception as e:
         state.log(f"Background runner crashed: {e}")
     finally:
@@ -718,7 +807,15 @@ def get_state() -> MarketState:
     return MarketState()
 
 
-def start_streaming(state: MarketState, client_secret: str, refresh_token: str, interval_sec: float) -> None:
+def start_streaming(
+    state: MarketState,
+    client_secret: str,
+    refresh_token: str,
+    interval_sec: float,
+    oanda_api_key: str,
+    oanda_account_id: str,
+    oanda_stream_url: str,
+) -> None:
     if state.running:
         return
     if not client_secret or not refresh_token:
@@ -730,7 +827,7 @@ def start_streaming(state: MarketState, client_secret: str, refresh_token: str, 
 
     t = threading.Thread(
         target=background_runner,
-        args=(state, client_secret, refresh_token, interval_sec),
+        args=(state, client_secret, refresh_token, interval_sec, oanda_api_key, oanda_account_id, oanda_stream_url),
         daemon=True,
     )
     t.start()
@@ -749,19 +846,19 @@ def configure_state(
     bitfinex_symbol: str,
     gate_pair: str,
     okx_inst_id: str,
+    bybit_xaut_symbol: str,
+    bybit_usdc_symbol: str,
     max_points: int,
 ) -> None:
-    """Update the shared engine configuration.
-
-    These settings are process-global because the websocket engine is shared by
-    every Streamlit user session through st.cache_resource.
-    """
+    """Update the shared engine configuration."""
     with state.lock:
         state.gc_symbol = gc_symbol.strip()
         state.bitget_inst_id = bitget_inst_id.strip().upper()
         state.bitfinex_symbol = bitfinex_symbol.strip()
         state.gate_pair = gate_pair.strip().upper()
         state.okx_inst_id = okx_inst_id.strip().upper()
+        state.bybit_xaut_symbol = bybit_xaut_symbol.strip().upper()
+        state.bybit_usdc_symbol = bybit_usdc_symbol.strip().upper()
         state.rows = deque(state.rows, maxlen=int(max_points))
 
 
@@ -770,17 +867,14 @@ def restart_streaming(
     client_secret: str,
     refresh_token: str,
     interval_sec: float,
+    oanda_api_key: str,
+    oanda_account_id: str,
+    oanda_stream_url: str,
 ) -> None:
-    """Restart the single shared background engine.
-
-    Use this after changing the COMEX contract or exchange symbols. The old
-    daemon thread exits when it sees state.running=False; the new one starts
-    after a short pause.
-    """
     if state.running:
         stop_streaming(state)
         time.sleep(1.0)
-    start_streaming(state, client_secret, refresh_token, interval_sec)
+    start_streaming(state, client_secret, refresh_token, interval_sec, oanda_api_key, oanda_account_id, oanda_stream_url)
 
 
 # =============================================================================
@@ -789,16 +883,19 @@ def restart_streaming(
 
 require_xaut_page_password()
 
-st.title("COMEX Gold Futures vs XAUT/USDT Venues")
+st.title("XAUT Markets vs. Gold Futures & CFD Spot")
 st.caption(
-    "Live comparison using TT DXLink for COMEX, native exchange websockets for XAUT/USDT, "
-    "and FRED SOFR for a simplified COMEX-implied spot estimate."
+    "Live comparison using COMEX, OANDA XAU/USD spot CFD, native exchange websockets for XAUT/USDT, "
+    "and Bybit USDC/USDT to normalize USDT-quoted XAUT prices."
 )
 
 state = get_state()
 
 client_secret = get_secret_any("TT_SECRET", "TT_CLIENT_SECRET", default="")
 refresh_token = get_secret_any("TT_REFRESH", "TT_REFRESH_TOKEN", default="")
+oanda_api_key = get_secret_any("OANDA_DEMO_API_KEY", "OANDA_API_KEY", default="")
+oanda_account_id = get_secret_any("OANDA_DEMO_ACCOUNT_ID", "OANDA_ACCOUNT_ID", default="")
+oanda_stream_url = get_secret_any("OANDA_STREAM_URL", default=OANDA_DEFAULT_STREAM_URL)
 
 with st.sidebar:
     st.header("XAUT vs. Gold Settings")
@@ -809,6 +906,8 @@ with st.sidebar:
     bitfinex_symbol = st.text_input("Bitfinex symbol", value=state.bitfinex_symbol, help="Default is tXAUT:UST. Bitfinex requires the leading t prefix and a colon for XAUT/USDt.")
     gate_pair = st.text_input("Gate pair", value=state.gate_pair, help="Gate spot pairs use underscore format, e.g. XAUT_USDT.")
     okx_inst_id = st.text_input("OKX instId", value=state.okx_inst_id, help="OKX spot symbols use dash format, e.g. XAUT-USDT.")
+    bybit_xaut_symbol = st.text_input("Bybit XAUT symbol", value=state.bybit_xaut_symbol, help="Bybit spot symbols are compact, e.g. XAUTUSDT.")
+    bybit_usdc_symbol = st.text_input("Bybit USDC/USDT symbol", value=state.bybit_usdc_symbol, help="Used as the USDT normalization factor. Default: USDCUSDT.")
 
     max_points = st.number_input("Max stored points", min_value=100, max_value=10000, value=DEFAULT_MAX_POINTS, step=100)
     interval_sec = st.number_input("Aggregation interval seconds", min_value=0.5, max_value=30.0, value=DEFAULT_INTERVAL_SEC, step=0.5)
@@ -821,16 +920,25 @@ with st.sidebar:
     st.caption(f"Bitfinex WS: `{BITFINEX_WS_URL}`")
     st.caption(f"Gate WS: `{GATE_WS_URL}`")
     st.caption(f"OKX WS: `{OKX_WS_URL}`")
-    st.caption(f"SOFR CSV: `{FRED_SOFR_CSV_URL}`")
+    st.caption(f"Bybit WS: `{BYBIT_WS_URL}`")
+    st.caption(f"OANDA Stream URL: `{oanda_stream_url}`")
 
 if apply_restart:
-    configure_state(state, gc_symbol, bitget_inst_id, bitfinex_symbol, gate_pair, okx_inst_id, int(max_points))
-    restart_streaming(state, client_secret, refresh_token, float(interval_sec))
+    configure_state(state, gc_symbol, bitget_inst_id, bitfinex_symbol, gate_pair, okx_inst_id, bybit_xaut_symbol, bybit_usdc_symbol, int(max_points))
+    restart_streaming(state, client_secret, refresh_token, float(interval_sec), oanda_api_key, oanda_account_id, oanda_stream_url)
 else:
-    # First user to open this page starts the single shared collector. Later
-    # users hit this same function, but start_streaming is a no-op while running.
-    configure_state(state, state.gc_symbol, state.bitget_inst_id, state.bitfinex_symbol, state.gate_pair, state.okx_inst_id, int(max_points))
-    start_streaming(state, client_secret, refresh_token, float(interval_sec))
+    configure_state(
+        state,
+        state.gc_symbol,
+        state.bitget_inst_id,
+        state.bitfinex_symbol,
+        state.gate_pair,
+        state.okx_inst_id,
+        state.bybit_xaut_symbol,
+        state.bybit_usdc_symbol,
+        int(max_points),
+    )
+    start_streaming(state, client_secret, refresh_token, float(interval_sec), oanda_api_key, oanda_account_id, oanda_stream_url)
 
 
 # =============================================================================
@@ -841,106 +949,123 @@ with state.lock:
     rows = list(state.rows)
     logs = list(state.logs)
     latest_quotes = {k: v for k, v in state.quotes.items()}
+    latest_usdc = state.bybit_usdc_quote
     latest = {
         "gc_bid": state.latest_gc_bid,
         "gc_ask": state.latest_gc_ask,
         "gc_mid": state.latest_gc_mid,
         "gc_time": state.latest_gc_time,
+        "oanda_bid": state.latest_oanda_bid,
+        "oanda_ask": state.latest_oanda_ask,
+        "oanda_mid": state.latest_oanda_mid,
+        "oanda_time": state.latest_oanda_time,
         "running": state.running,
         "started_at": state.started_at,
-        "sofr_rate_pct": state.sofr_rate_pct,
-        "sofr_date": state.sofr_date,
-        "sofr_last_fetch": state.sofr_last_fetch,
-        "t_years": years_to_expiry(state.gc_symbol),
         "days_to_expiry": days_to_expiry(state.gc_symbol),
         "contract_month": gc_contract_month_name(state.gc_symbol),
         "expiry_date": gc_expiry_date(state.gc_symbol),
     }
-
-latest["comex_spot"] = comex_implied_spot(
-    latest["gc_mid"],
-    latest["sofr_rate_pct"] / 100.0 if latest["sofr_rate_pct"] is not None else None,
-    latest["t_years"],
-)
 
 df = pd.DataFrame(rows)
 
 status = "RUNNING" if latest["running"] else "STOPPED"
 st.subheader(f"Status: {status}")
 
-top_cols = st.columns([1, 1, 2])
-with top_cols[0]:
+metric_container = st.container()
+
+with metric_container:
+    c1, c2, c3, c4 = st.columns([1, 1, 1, 1])
+    
+with c1:
     contract_month = latest.get("contract_month") or ""
     gc_mid_label = f"COMEX GC {contract_month} Mid" if contract_month else "COMEX GC Contract Mid"
     st.metric(gc_mid_label, f"{latest['gc_mid']:,.2f}" if latest["gc_mid"] is not None else "—")
-with top_cols[1]:
-    st.metric("COMEX Implied Spot Price", f"{latest['comex_spot']:,.2f}" if latest["comex_spot"] is not None else "—")
+with c2:
+    st.metric("Gold Spot CFD Price", f"{latest['oanda_mid']:,.2f}" if latest["oanda_mid"] is not None else "—")
+with c3:
+    st.metric("Bybit USDC/USDT", f"{latest_usdc.mid:,.6f}" if latest_usdc.mid is not None else "—")
+with c4:
+    st.metric("Days to Expiry", f"{latest['days_to_expiry']:,}" if latest.get("days_to_expiry") is not None else "—")
 
-st.markdown("**Exchange XAUT/USDT mids**")
-venue_cols = st.columns([1, 1, 1, 1])
-for col, venue in zip(venue_cols, ["Bitget", "Bitfinex", "Gate", "OKX"]):
+
+st.markdown("**Exchange XAUT/USDT mids — raw and USDC/USDT-normalized**")
+venue_cols = st.columns(len(VENUES))
+for col, venue in zip(venue_cols, VENUES):
     q = latest_quotes.get(venue, VenueQuote())
+    norm_mid = normalized_xaut_price(q.mid, latest_usdc.mid)
     with col:
-        st.metric(venue, f"{q.mid:,.4f}" if q.mid is not None else "—")
-        if q.mid is not None and latest["comex_spot"] is not None:
-            prem_bps = ((q.mid - latest["comex_spot"]) / latest["comex_spot"]) * 10000
-            st.caption(f"vs implied spot: {prem_bps:,.2f} bps")
-        elif q.mid is not None and latest["gc_mid"] is not None:
-            prem_bps = ((q.mid - latest["gc_mid"]) / latest["gc_mid"]) * 10000
-            st.caption(f"vs GC future: {prem_bps:,.2f} bps")
+        st.metric(venue, f"{norm_mid:,.4f}" if norm_mid is not None else "—")
+        if q.mid is not None:
+            st.caption(f"raw: {q.mid:,.4f}")
+        if norm_mid is not None and latest["oanda_mid"] is not None:
+            st.caption(f"vs spot: {premium_bps(norm_mid, latest['oanda_mid']):,.2f} bps")
+        elif norm_mid is not None and latest["gc_mid"] is not None:
+            st.caption(f"vs GC future: {premium_bps(norm_mid, latest['gc_mid']):,.2f} bps")
         else:
             st.caption("premium: —")
 
-carry_cols = st.columns([1, 1, 1, 1])
-with carry_cols[0]:
-    st.metric("SOFR", f"{latest['sofr_rate_pct']:.4f}%" if latest["sofr_rate_pct"] is not None else "—")
-with carry_cols[1]:
-    st.metric("Days to Expiry", f"{latest['days_to_expiry']:,}" if latest.get("days_to_expiry") is not None else "—")
-with carry_cols[2]:
+info_cols = st.columns([1, 1, 1])
+with info_cols[0]:
     st.metric("Approx. Expiry", latest["expiry_date"].isoformat() if latest.get("expiry_date") else "—")
-
-st.caption(
-    f"COMEX bid/ask: "
-    f"{latest['gc_bid']:,.2f} / {latest['gc_ask']:,.2f}" if latest["gc_bid"] is not None and latest["gc_ask"] is not None else "COMEX bid/ask: —"
-)
+with info_cols[1]:
+    st.metric("OANDA Bid / Ask", f"{latest['oanda_bid']:,.2f} / {latest['oanda_ask']:,.2f}" if latest["oanda_bid"] is not None and latest["oanda_ask"] is not None else "—")
+with info_cols[2]:
+    st.metric("COMEX Bid / Ask", f"{latest['gc_bid']:,.2f} / {latest['gc_ask']:,.2f}" if latest["gc_bid"] is not None and latest["gc_ask"] is not None else "—")
 
 quote_rows = []
 for venue, q in latest_quotes.items():
+    norm_mid = normalized_xaut_price(q.mid, latest_usdc.mid)
     quote_rows.append({
         "Venue": venue,
-        "Bid": q.bid,
-        "Ask": q.ask,
-        "Mid": q.mid,
-        "Last": q.last,
+        "Raw Bid": q.bid,
+        "Raw Ask": q.ask,
+        "Raw Mid": q.mid,
+        "Normalized Mid": norm_mid,
         "Bid Size": q.bid_size,
         "Ask Size": q.ask_size,
         "Last Update": q.ts.strftime("%H:%M:%S") if q.ts else None,
-        "Premium vs Spot (bps)": ((q.mid - latest["comex_spot"]) / latest["comex_spot"]) * 10000 if q.mid is not None and latest["comex_spot"] else None,
-        "Premium vs Future (bps)": ((q.mid - latest["gc_mid"]) / latest["gc_mid"]) * 10000 if q.mid is not None and latest["gc_mid"] else None,
+        "Premium vs Spot (bps)": premium_bps(norm_mid, latest["oanda_mid"]),
+        "Premium vs FM Future (bps)": premium_bps(norm_mid, latest["gc_mid"]),
     })
+
+quote_rows.append({
+    "Venue": "Bybit USDC/USDT normalization",
+    "Raw Bid": latest_usdc.bid,
+    "Raw Ask": latest_usdc.ask,
+    "Raw Mid": latest_usdc.mid,
+    "Normalized Mid": None,
+    "Bid Size": latest_usdc.bid_size,
+    "Ask Size": latest_usdc.ask_size,
+    "Last Update": latest_usdc.ts.strftime("%H:%M:%S") if latest_usdc.ts else None,
+    "Premium vs Spot (bps)": None,
+    "Premium vs FM Future (bps)": None,
+})
 
 st.dataframe(pd.DataFrame(quote_rows), width="stretch", hide_index=True)
 
-if latest["gc_time"] or any(q.ts for q in latest_quotes.values()):
+if latest["gc_time"] or latest["oanda_time"] or any(q.ts for q in latest_quotes.values()):
     venue_times = " | ".join(f"{v}: {q.ts.strftime('%H:%M:%S') if q.ts else '—'}" for v, q in latest_quotes.items())
     st.caption(
         f"Last COMEX update: {latest['gc_time'].strftime('%H:%M:%S') if latest['gc_time'] else '—'} | "
-        f"{venue_times} | SOFR date: {latest['sofr_date'] or '—'}"
+        f"Last OANDA update: {latest['oanda_time'].strftime('%H:%M:%S') if latest['oanda_time'] else '—'} | "
+        f"Bybit USDC/USDT: {latest_usdc.ts.strftime('%H:%M:%S') if latest_usdc.ts else '—'} | "
+        f"{venue_times}"
     )
 
 if df.empty:
-    st.info("Waiting for the shared market-data engine to receive COMEX and XAUT venue quotes")
+    st.info("Waiting for the shared market-data engine to receive COMEX, OANDA, and XAUT venue quotes")
 else:
     df = df.sort_values("time")
 
     fig_prices = go.Figure()
-    fig_prices.add_trace(go.Scatter(x=df["time"], y=df["gc_mid"], mode="lines", name="COMEX GC Future"))
-    if "comex_spot" in df.columns:
-        fig_prices.add_trace(go.Scatter(x=df["time"], y=df["comex_spot"], mode="lines", name="COMEX Implied Spot"))
-    for venue in ["bitget", "bitfinex", "gate", "okx"]:
-        col = f"{venue}_mid"
+    if "gc_mid" in df.columns and df["gc_mid"].notna().any():
+        fig_prices.add_trace(go.Scatter(x=df["time"], y=df["gc_mid"], mode="lines", name="COMEX GC Future"))
+    if "oanda_spot_mid" in df.columns and df["oanda_spot_mid"].notna().any():
+        fig_prices.add_trace(go.Scatter(x=df["time"], y=df["oanda_spot_mid"], mode="lines", name="Gold Spot CFD Price"))
+    for venue in VENUE_KEYS:
+        col = f"{venue}_normalized_mid"
         if col in df.columns and df[col].notna().any():
-            fig_prices.add_trace(go.Scatter(x=df["time"], y=df[col], mode="lines", name=f"{venue.title()} XAUT"))
+            fig_prices.add_trace(go.Scatter(x=df["time"], y=df[col], mode="lines", name=f"{venue.title()} XAUT normalized"))
     fig_prices.update_layout(
         title="Live Absolute Prices",
         xaxis_title="Time",
@@ -950,32 +1075,45 @@ else:
     )
     st.plotly_chart(fig_prices, width="stretch")
 
-    fig_prem = go.Figure()
-    for venue in ["bitget", "bitfinex", "gate", "okx"]:
+    fig_spot_prem = go.Figure()
+    for venue in VENUE_KEYS:
         col = f"{venue}_premium_vs_spot_bps"
-        fallback_col = f"{venue}_premium_vs_future_bps"
         if col in df.columns and df[col].notna().any():
-            fig_prem.add_trace(go.Scatter(x=df["time"], y=df[col], mode="lines", name=f"{venue.title()} vs COMEX Spot"))
-        elif fallback_col in df.columns and df[fallback_col].notna().any():
-            fig_prem.add_trace(go.Scatter(x=df["time"], y=df[fallback_col], mode="lines", name=f"{venue.title()} vs GC Future"))
-    fig_prem.add_hline(y=0, line_dash="dash")
-    fig_prem.update_layout(
-        title="XAUT Premium / Discount",
+            fig_spot_prem.add_trace(go.Scatter(x=df["time"], y=df[col], mode="lines", name=f"{venue.title()} vs Spot CFD"))
+    fig_spot_prem.add_hline(y=0, line_dash="dash")
+    fig_spot_prem.update_layout(
+        title="XAUT Premium / Discount vs. Spot",
         xaxis_title="Time",
         yaxis_title="bps",
         height=390,
         margin=dict(l=20, r=20, t=50, b=20),
     )
-    st.plotly_chart(fig_prem, width="stretch")
+    st.plotly_chart(fig_spot_prem, width="stretch")
 
-    # Normalized chart
+    fig_future_prem = go.Figure()
+    for venue in VENUE_KEYS:
+        col = f"{venue}_premium_vs_future_bps"
+        if col in df.columns and df[col].notna().any():
+            fig_future_prem.add_trace(go.Scatter(x=df["time"], y=df[col], mode="lines", name=f"{venue.title()} vs GC Future"))
+    fig_future_prem.add_hline(y=0, line_dash="dash")
+    fig_future_prem.update_layout(
+        title="XAUT Premium / Discount vs. FM Future",
+        xaxis_title="Time",
+        yaxis_title="bps",
+        height=390,
+        margin=dict(l=20, r=20, t=50, b=20),
+    )
+    st.plotly_chart(fig_future_prem, width="stretch")
+
     fig_norm = go.Figure()
-    if df["gc_mid"].notna().any():
-        fig_norm.add_trace(go.Scatter(x=df["time"], y=df["gc_mid"] / df["gc_mid"].dropna().iloc[0] * 100, mode="lines", name="COMEX GC normalized"))
-    if "comex_spot" in df.columns and df["comex_spot"].notna().any():
-        fig_norm.add_trace(go.Scatter(x=df["time"], y=df["comex_spot"] / df["comex_spot"].dropna().iloc[0] * 100, mode="lines", name="COMEX Spot normalized"))
-    for venue in ["bitget", "bitfinex", "gate", "okx"]:
-        col = f"{venue}_mid"
+    if "gc_mid" in df.columns and df["gc_mid"].notna().any():
+        base = df["gc_mid"].dropna().iloc[0]
+        fig_norm.add_trace(go.Scatter(x=df["time"], y=df["gc_mid"] / base * 100, mode="lines", name="COMEX GC normalized"))
+    if "oanda_spot_mid" in df.columns and df["oanda_spot_mid"].notna().any():
+        base = df["oanda_spot_mid"].dropna().iloc[0]
+        fig_norm.add_trace(go.Scatter(x=df["time"], y=df["oanda_spot_mid"] / base * 100, mode="lines", name="Gold Spot CFD normalized"))
+    for venue in VENUE_KEYS:
+        col = f"{venue}_normalized_mid"
         if col in df.columns and df[col].notna().any():
             base = df[col].dropna().iloc[0]
             fig_norm.add_trace(go.Scatter(x=df["time"], y=df[col] / base * 100, mode="lines", name=f"{venue.title()} XAUT normalized"))
@@ -998,8 +1136,8 @@ with st.expander("Logs", expanded=False):
         st.write("No logs yet.")
 
 st.caption(
-    "COMEX Implied Spot Price is a simplified carry-adjusted estimate: future_mid / exp(SOFR × years_to_expiry). "
-    "It ignores storage costs, gold lease rates, convenience yield, exchange delivery mechanics, and holidays."
+    "XAUT venue prices are normalized as XAUT/USDT × (1 / Bybit USDC/USDT) before comparing to OANDA XAU/USD spot CFD or the selected COMEX front-month future. "
+    "The old COMEX implied spot/SOFR calculation has been removed."
 )
 
 # Auto-refresh. This keeps the app live without adding streamlit-autorefresh.
