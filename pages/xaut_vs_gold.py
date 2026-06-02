@@ -65,8 +65,8 @@ MONTH_NAMES = {
     5: "May", 6: "June", 7: "July", 8: "August",
     9: "September", 10: "October", 11: "November", 12: "December",
 }
-VENUES = ["Bitget", "Bitfinex", "Gate", "OKX", "Bybit"]
-VENUE_KEYS = ["bitget", "bitfinex", "gate", "okx", "bybit"]
+VENUES = ["Bybit","Bitget", "Bitfinex", "Gate", "OKX"]
+VENUE_KEYS = ["bybit","bitget", "bitfinex", "gate", "okx"]
 
 
 # =============================================================================
@@ -109,11 +109,11 @@ class MarketState:
     bybit_usdc_quote: VenueQuote = field(default_factory=VenueQuote)
 
     quotes: Dict[str, VenueQuote] = field(default_factory=lambda: {
+        "Bybit": VenueQuote(),
         "Bitget": VenueQuote(),
         "Bitfinex": VenueQuote(),
         "Gate": VenueQuote(),
         "OKX": VenueQuote(),
-        "Bybit": VenueQuote(),
     })
 
     rows: deque = field(default_factory=lambda: deque(maxlen=DEFAULT_MAX_POINTS))
@@ -969,48 +969,109 @@ with state.lock:
 df = pd.DataFrame(rows)
 
 status = "RUNNING" if latest["running"] else "STOPPED"
+
+# metric_container = st.container()
+
+# with metric_container:
+#     c1, c2, c3, c4 = st.columns([1, 1, 1, 1])
+    
+# with c1:
+#     contract_month = latest.get("contract_month") or ""
+#     gc_mid_label = f"COMEX GC {contract_month} Mid" if contract_month else "COMEX GC Contract Mid"
+#     st.metric(gc_mid_label, f"{latest['gc_mid']:,.2f}" if latest["gc_mid"] is not None else "—")
+# with c2:
+#     st.metric("Gold Spot CFD Price", f"{latest['oanda_mid']:,.2f}" if latest["oanda_mid"] is not None else "—")
+# with c3:
+#     st.metric("Bybit USDC/USDT", f"{latest_usdc.mid:,.6f}" if latest_usdc.mid is not None else "—")
+# with c4:
+#     st.metric("Days to Expiry", f"{latest['days_to_expiry']:,}" if latest.get("days_to_expiry") is not None else "—")
+
 st.subheader(f"Status: {status}")
 
-metric_container = st.container()
+top_cols = st.columns([1.15, 1.15, 1.0, 0.8], gap="small")
 
-with metric_container:
-    c1, c2, c3, c4 = st.columns([1, 1, 1, 1])
-    
-with c1:
+with top_cols[0]:
     contract_month = latest.get("contract_month") or ""
-    gc_mid_label = f"COMEX GC {contract_month} Mid" if contract_month else "COMEX GC Contract Mid"
+    gc_mid_label = f"COMEX GC {contract_month}" if contract_month else "COMEX GC"
     st.metric(gc_mid_label, f"{latest['gc_mid']:,.2f}" if latest["gc_mid"] is not None else "—")
-with c2:
-    st.metric("Gold Spot CFD Price", f"{latest['oanda_mid']:,.2f}" if latest["oanda_mid"] is not None else "—")
-with c3:
+
+with top_cols[1]:
+    st.metric("Gold Spot CFD", f"{latest['oanda_mid']:,.2f}" if latest["oanda_mid"] is not None else "—")
+
+with top_cols[2]:
     st.metric("Bybit USDC/USDT", f"{latest_usdc.mid:,.6f}" if latest_usdc.mid is not None else "—")
-with c4:
-    st.metric("Days to Expiry", f"{latest['days_to_expiry']:,}" if latest.get("days_to_expiry") is not None else "—")
+
+with top_cols[3]:
+    st.metric("Future DTE", f"{latest['days_to_expiry']:,}" if latest.get("days_to_expiry") is not None else "—")
 
 
-st.markdown("**Exchange XAUT/USDT mids — raw and USDC/USDT-normalized**")
-venue_cols = st.columns(len(VENUES))
+# st.markdown("**Exchange XAUT/USDT mids — raw and USDC/USDT-normalized**")
+# venue_cols = st.columns(len(VENUES))
+# for col, venue in zip(venue_cols, VENUES):
+#     q = latest_quotes.get(venue, VenueQuote())
+#     norm_mid = normalized_xaut_price(q.mid, latest_usdc.mid)
+#     with col:
+#         st.metric(venue, f"{norm_mid:,.4f}" if norm_mid is not None else "—")
+#         if q.mid is not None:
+#             st.caption(f"raw: {q.mid:,.4f}")
+#         if norm_mid is not None and latest["oanda_mid"] is not None:
+#             st.caption(f"vs spot: {premium_bps(norm_mid, latest['oanda_mid']):,.2f} bps")
+#         elif norm_mid is not None and latest["gc_mid"] is not None:
+#             st.caption(f"vs GC future: {premium_bps(norm_mid, latest['gc_mid']):,.2f} bps")
+#         else:
+#             st.caption("premium: —")
+
+st.markdown("**Exchange XAUT/USDT mids**")
+
+venue_cols = st.columns(len(VENUES), gap="small")
+
 for col, venue in zip(venue_cols, VENUES):
     q = latest_quotes.get(venue, VenueQuote())
     norm_mid = normalized_xaut_price(q.mid, latest_usdc.mid)
-    with col:
-        st.metric(venue, f"{norm_mid:,.4f}" if norm_mid is not None else "—")
-        if q.mid is not None:
-            st.caption(f"raw: {q.mid:,.4f}")
-        if norm_mid is not None and latest["oanda_mid"] is not None:
-            st.caption(f"vs spot: {premium_bps(norm_mid, latest['oanda_mid']):,.2f} bps")
-        elif norm_mid is not None and latest["gc_mid"] is not None:
-            st.caption(f"vs GC future: {premium_bps(norm_mid, latest['gc_mid']):,.2f} bps")
-        else:
-            st.caption("premium: —")
 
-info_cols = st.columns([1, 1, 1])
-with info_cols[0]:
-    st.metric("Approx. Expiry", latest["expiry_date"].isoformat() if latest.get("expiry_date") else "—")
-with info_cols[1]:
-    st.metric("OANDA Bid / Ask", f"{latest['oanda_bid']:,.2f} / {latest['oanda_ask']:,.2f}" if latest["oanda_bid"] is not None and latest["oanda_ask"] is not None else "—")
-with info_cols[2]:
-    st.metric("COMEX Bid / Ask", f"{latest['gc_bid']:,.2f} / {latest['gc_ask']:,.2f}" if latest["gc_bid"] is not None and latest["gc_ask"] is not None else "—")
+    raw_txt = f"{q.mid:,.4f}" if q.mid is not None else "—"
+    norm_txt = f"{norm_mid:,.4f}" if norm_mid is not None else "—"
+
+    with col:
+        st.markdown(
+            f"""
+            <div style="
+                border:1px solid rgba(128,128,128,0.25);
+                border-radius:10px;
+                padding:8px 10px;
+                margin-bottom:4px;
+                min-height:82px;
+            ">
+                <div style="font-size:0.78rem; color:gray; margin-bottom:2px;">
+                    {venue}
+                </div>
+                <div style="font-size:1.45rem; font-weight:700; line-height:1.15;">
+                    {raw_txt}
+                </div>
+                <div style="font-size:0.78rem; color:gray; line-height:1.2;">
+                    normalized: {norm_txt}
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+# info_cols = st.columns([1, 1, 1])
+# with info_cols[0]:
+#     st.metric("Approx. Expiry", latest["expiry_date"].isoformat() if latest.get("expiry_date") else "—")
+# with info_cols[1]:
+#     st.metric("OANDA Bid / Ask", f"{latest['oanda_bid']:,.2f} / {latest['oanda_ask']:,.2f}" if latest["oanda_bid"] is not None and latest["oanda_ask"] is not None else "—")
+# with info_cols[2]:
+#     st.metric("COMEX Bid / Ask", f"{latest['gc_bid']:,.2f} / {latest['gc_ask']:,.2f}" if latest["gc_bid"] is not None and latest["gc_ask"] is not None else "—")
+
+with st.expander("Reference details", expanded=False):
+    info_cols = st.columns(3, gap="small")
+    with info_cols[0]:
+        st.metric("Approx. Expiry", latest["expiry_date"].isoformat() if latest.get("expiry_date") else "—")
+    with info_cols[1]:
+        st.metric("OANDA XAUUSD Bid / Ask", f"{latest['oanda_bid']:,.2f} / {latest['oanda_ask']:,.2f}" if latest["oanda_bid"] is not None and latest["oanda_ask"] is not None else "—")
+    with info_cols[2]:
+        st.metric("COMEX Future Bid / Ask", f"{latest['gc_bid']:,.2f} / {latest['gc_ask']:,.2f}" if latest["gc_bid"] is not None and latest["gc_ask"] is not None else "—")
 
 quote_rows = []
 for venue, q in latest_quotes.items():
@@ -1137,7 +1198,6 @@ with st.expander("Logs", expanded=False):
 
 st.caption(
     "XAUT venue prices are normalized as XAUT/USDT × (1 / Bybit USDC/USDT) before comparing to OANDA XAU/USD spot CFD or the selected COMEX front-month future. "
-    "The old COMEX implied spot/SOFR calculation has been removed."
 )
 
 # Auto-refresh. This keeps the app live without adding streamlit-autorefresh.
