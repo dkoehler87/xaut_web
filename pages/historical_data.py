@@ -16,8 +16,8 @@ from supabase import create_client
 
 st.set_page_config(page_title="Historical Data", layout="wide")
 
-DEFAULT_TOKENS = ["XAUT", "XAUT0", "USAT", "PAXG"]
-TOKEN_ORDER = ["XAUT", "XAUT0", "PAXG", "USAT"]
+DEFAULT_TOKENS = ["XAUT", "PAXG", "XAUT0", "USAT"]
+TOKEN_ORDER = ["XAUT", "PAXG", "XAUT0", "USAT"]
 
 TABLE_NAME = "token_metrics_daily"
 SUPABASE_PAGE_SIZE = 1000
