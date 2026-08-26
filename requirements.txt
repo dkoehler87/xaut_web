@@ -1,0 +1,11 @@
+streamlit==1.55.0
+pandas
+numpy
+plotly
+streamlit-autorefresh
+ccxt
+altair
+xlsxwriter
+supabase
+openpyxl
+tastytrade

@@ -7,7 +7,10 @@ Streamlit live dashboard
 from __future__ import annotations
 
 import asyncio
+<<<<<<< HEAD
 import hmac
+=======
+>>>>>>> origin/main
 import json
 import os
 import threading
@@ -17,7 +20,10 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Dict, Optional, Tuple
+<<<<<<< HEAD
 from urllib.parse import urlparse
+=======
+>>>>>>> origin/main
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -57,10 +63,13 @@ BYBIT_USDC_SYMBOL = "USDCUSDT"
 
 OANDA_DEFAULT_STREAM_URL = "https://stream-fxpractice.oanda.com"
 OANDA_INSTRUMENT = "XAU_USD"
+<<<<<<< HEAD
 OANDA_ALLOWED_STREAM_HOSTS = {
     "stream-fxpractice.oanda.com",
     "stream-fxtrade.oanda.com",
 }
+=======
+>>>>>>> origin/main
 
 MONTH_CODES = {
     "F": 1, "G": 2, "H": 3, "J": 4, "K": 5, "M": 6,
@@ -217,17 +226,21 @@ def require_xaut_page_password() -> None:
         return
 
     st.title("XAUT vs. Gold")
+<<<<<<< HEAD
     lockout_until = float(st.session_state.get("xaut_vs_gold_lockout_until", 0.0))
     remaining = int(lockout_until - time.time())
     if remaining > 0:
         st.error(f"Too many incorrect attempts. Try again in {remaining + 1} seconds.")
         st.stop()
 
+=======
+>>>>>>> origin/main
     entered_password = st.text_input("Password", type="password")
 
     if not entered_password:
         st.stop()
 
+<<<<<<< HEAD
     if hmac.compare_digest(entered_password, configured_password):
         st.session_state["xaut_vs_gold_authenticated"] = True
         st.session_state.pop("xaut_vs_gold_failed_attempts", None)
@@ -239,10 +252,17 @@ def require_xaut_page_password() -> None:
     if failed_attempts >= 5:
         st.session_state["xaut_vs_gold_failed_attempts"] = 0
         st.session_state["xaut_vs_gold_lockout_until"] = time.time() + 60
+=======
+    if entered_password == configured_password:
+        st.session_state["xaut_vs_gold_authenticated"] = True
+        st.rerun()
+
+>>>>>>> origin/main
     st.error("Incorrect password")
     st.stop()
 
 
+<<<<<<< HEAD
 def validate_oanda_stream_url(stream_url: str) -> str:
     """Allow credentials to be sent only to OANDA's official HTTPS stream hosts."""
     parsed = urlparse((stream_url or "").strip())
@@ -260,6 +280,8 @@ def validate_oanda_stream_url(stream_url: str) -> str:
     return f"https://{parsed.hostname}"
 
 
+=======
+>>>>>>> origin/main
 def parse_gc_month_year(symbol: str) -> Tuple[int, int]:
     """Parse a TT-style future symbol like /GCQ26:XCEC into month/year."""
     core = symbol.split(":", 1)[0].replace("/", "")
@@ -371,6 +393,7 @@ def stream_oanda_spot_blocking(
         state.log("Missing OANDA credentials. Set OANDA_DEMO_API_KEY/OANDA_DEMO_ACCOUNT_ID or OANDA_API_KEY/OANDA_ACCOUNT_ID.")
         return
 
+<<<<<<< HEAD
     try:
         safe_stream_url = validate_oanda_stream_url(stream_url)
     except ValueError as exc:
@@ -378,6 +401,9 @@ def stream_oanda_spot_blocking(
         return
 
     url = f"{safe_stream_url}/v3/accounts/{account_id}/pricing/stream"
+=======
+    url = f"{stream_url.rstrip('/')}/v3/accounts/{account_id}/pricing/stream"
+>>>>>>> origin/main
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Accept-Datetime-Format": "RFC3339",
