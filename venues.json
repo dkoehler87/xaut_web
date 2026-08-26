@@ -1,0 +1,93 @@
+{
+  "MEXC": {
+    "ccxt_id": "mexc",
+    "pairs": [
+      { "symbol": "GOLD(XAUT)/USDT" }
+    ]
+  },
+  "OKX": {
+    "ccxt_id": "okx",
+    "pairs": [
+      { "symbol": "XAUT/USDT" }
+    ]
+  },
+  "Gate": {
+    "ccxt_id": "gate",
+    "pairs": [
+      { "symbol": "XAUT/USDT" }
+    ]
+  },
+  "Crypto.com": {
+    "ccxt_id": "cryptocom",
+    "pairs": [
+      { "symbol": "XAUT/USD" },
+	  { "symbol": "XAUT/USDT" } 
+    ]
+  },
+  "Kraken": {
+    "ccxt_id": "kraken",
+    "pairs": [
+      { "symbol": "XAUT/USD" },
+      { "symbol": "XAUT/USDT" }
+    ]
+  },
+  "Hyperliquid": {
+    "ccxt_id": "hyperliquid",
+    "pairs": [
+      { "symbol": "XAUT/USDT" },
+      { "symbol": "XAUT/USDC" } 
+    ]
+  },
+  "Bitfinex": {
+    "ccxt_id": "bitfinex",
+    "pairs": [
+      { "symbol": "XAUT/USDT" },
+      { "symbol": "XAUT/USD" }
+    ]
+  },
+    "Bybit": {
+    "ccxt_id": "bybit",
+    "pairs": [
+      { "symbol": "XAUT/USDT"}
+    ]
+  },
+     "Bitget": {
+    "ccxt_id": "bitget",
+    "pairs": [
+      { "symbol": "XAUT/USDT"}
+    ]
+  },
+     "BingX": {
+    "ccxt_id": "bingx",
+    "pairs": [
+      { "symbol": "XAUT/USDT"}
+    ]
+  },
+     "Kucoin": {
+    "ccxt_id": "kucoin",
+    "pairs": [
+      { "symbol": "XAUT/USDT"}
+    ]
+  },
+     "Binance": {
+    "ccxt_id": "binance",
+    "pairs": [
+      { "symbol": "XAUT/USDT"},
+	  { "symbol": "XAUT/USDC"},
+	  { "symbol": "XAUT/BTC"},
+	  { "symbol": "XAUT/TRY"}
+    ]
+  },
+     "Foxbit": {
+    "ccxt_id": "foxbit",
+    "pairs": [
+      { "symbol": "XAUT/BRL"}
+    ]
+  },
+     "Gemini": {
+    "ccxt_id": "gemini",
+    "pairs": [
+      { "symbol": "XAUT/USD"}
+    ]
+  }  
+}

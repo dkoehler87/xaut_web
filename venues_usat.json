@@ -1,0 +1,59 @@
+{
+  "Crypto.com": {
+    "ccxt_id": "cryptocom",
+    "pairs": [
+      { "symbol": "USAT/USD"}    
+	  ]
+  },
+ "OKX": {
+    "ccxt_id": "okx",
+    "pairs": [
+      { "symbol": "USAT/USDT" },
+	  { "symbol": "USAT/USD" }
+    ]
+  },
+  "Kraken": {
+    "ccxt_id": "kraken",
+    "pairs": [
+      { "symbol": "USAT/USDT"},
+      { "symbol": "USAT/USD" }
+    ]
+  },
+   "Bitget": {
+    "ccxt_id": "bitget",
+    "pairs": [
+      { "symbol": "USAT/USDT"}
+    ]
+  },
+   "MEXC": {
+    "ccxt_id": "mexc",
+    "pairs": [
+      { "symbol": "USAT/USDT"}
+    ]
+  },
+    "Bybit": {
+    "ccxt_id": "bybit",
+    "pairs": [
+      { "symbol": "USAT/USDT"}
+    ]
+  },
+    "HTX": {
+    "ccxt_id": "htx",
+    "pairs": [
+      { "symbol": "USAT/USDT"}
+    ]
+  },
+     "Bitfinex": {
+    "ccxt_id": "bitfinex",
+    "pairs": [
+      { "symbol": "USAT/USDT"},
+	  { "symbol": "USAT/USD"}
+    ]
+  },
+     "Gemini": {
+    "ccxt_id": "gemini",
+    "pairs": [
+	  { "symbol": "USAT/USD"}
+    ]
+  }  
+}
