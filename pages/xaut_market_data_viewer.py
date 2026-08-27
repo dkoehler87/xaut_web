@@ -294,15 +294,11 @@ def render_market_share_pie_plotly(
     
 def dataframe_to_xlsx(df: pd.DataFrame) -> BytesIO:
     buffer = BytesIO()
-<<<<<<< HEAD
     with pd.ExcelWriter(
         buffer,
         engine="xlsxwriter",
         engine_kwargs={"options": {"strings_to_formulas": False, "strings_to_urls": False}},
     ) as writer:
-=======
-    with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
->>>>>>> origin/main
         df.to_excel(writer, index=False, sheet_name="Data")
     buffer.seek(0)
     return buffer

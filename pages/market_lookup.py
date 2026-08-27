@@ -67,10 +67,7 @@ def drop_constant_columns(
         "bid",
         "ask",
         "mid",
-<<<<<<< HEAD
         "last",
-=======
->>>>>>> origin/main
         "spread_bps",
         "error",
     }
@@ -91,7 +88,6 @@ def drop_empty_columns(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
         return df
 
-<<<<<<< HEAD
     # Keep the expected market-price schema visible and exportable even when
     # a particular exchange's bulk ticker endpoint omits some BBO fields.
     always_keep = {
@@ -113,11 +109,6 @@ def drop_empty_columns(df: pd.DataFrame) -> pd.DataFrame:
             cols_to_keep.append(col)
             continue
 
-=======
-    cols_to_keep = []
-
-    for col in df.columns:
->>>>>>> origin/main
         series = df[col]
 
         # Remove columns where every value is null/blank
@@ -217,11 +208,7 @@ def parse_bps_bands(raw: str) -> List[float]:
 
         try:
             value = float(part)
-<<<<<<< HEAD
             if 0 < value <= 10_000:
-=======
-            if value > 0:
->>>>>>> origin/main
                 bands.append(value)
         except ValueError:
             pass
@@ -234,11 +221,7 @@ def parse_bps_bands(raw: str) -> List[float]:
             seen.add(band)
             out.append(band)
 
-<<<<<<< HEAD
     return out[:20]
-=======
-    return out
->>>>>>> origin/main
 
 
 def safe_fetch_tickers(
@@ -250,16 +233,12 @@ def safe_fetch_tickers(
 
     try:
         if symbols:
-<<<<<<< HEAD
             try:
                 return exchange.fetch_tickers(symbols), None
             except Exception:
                 # Some CCXT exchanges expose fetchTickers but do not accept a
                 # symbols argument. Retry their all-tickers form.
                 return exchange.fetch_tickers(), None
-=======
-            return exchange.fetch_tickers(symbols), None
->>>>>>> origin/main
         return exchange.fetch_tickers(), None
     except Exception as exc:
         return {}, f"fetchTickers failed: {clean_ccxt_error(exc)}"
@@ -282,15 +261,11 @@ def dataframe_to_excel_bytes(
 ) -> bytes:
     output = io.BytesIO()
 
-<<<<<<< HEAD
     with pd.ExcelWriter(
         output,
         engine="xlsxwriter",
         engine_kwargs={"options": {"strings_to_formulas": False, "strings_to_urls": False}},
     ) as writer:
-=======
-    with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
->>>>>>> origin/main
         df.to_excel(writer, index=False, sheet_name=sheet_name)
 
         workbook = writer.book
@@ -380,7 +355,6 @@ def get_markets_df(
 
     ticker_by_symbol = {}
 
-<<<<<<< HEAD
     symbols_for_tickers = []
     for symbol, market in markets.items():
         market_type = market_type_label(market)
@@ -391,33 +365,19 @@ def get_markets_df(
         symbols_for_tickers.append(symbol)
 
     if include_tickers:
-=======
-    if include_tickers:
-        symbols_for_tickers = list(markets.keys())
-
->>>>>>> origin/main
         if ticker_mode == "Auto":
             if exchange_id.lower() in {"bitso"}:
                 warnings.append(
                     "Skipped ticker enrichment in Auto mode for Bitso to avoid slow/hanging fetchTickers calls."
                 )
-<<<<<<< HEAD
             elif exchange.has.get("fetchTickers"):
                 ticker_by_symbol, err = safe_fetch_tickers(exchange, symbols_for_tickers)
-=======
-            elif exchange.has.get("fetchTickers") and len(symbols_for_tickers) <= 500:
-                ticker_by_symbol, err = safe_fetch_tickers(exchange)
->>>>>>> origin/main
                 if err:
                     warnings.append(err)
             else:
                 warnings.append(
-<<<<<<< HEAD
                     "Bulk ticker retrieval is unsupported; Auto mode skipped price enrichment. "
                     "No per-symbol ticker requests were made."
-=======
-                    "Skipped ticker enrichment in Auto mode because bulk fetchTickers is unsupported or market count is large."
->>>>>>> origin/main
                 )
 
         elif ticker_mode == "Bulk fetchTickers":
@@ -461,13 +421,8 @@ def get_markets_df(
             continue
 
         ticker = ticker_by_symbol.get(symbol, {}) or {}
-<<<<<<< HEAD
         bid = safe_float(ticker.get("bid"))
         ask = safe_float(ticker.get("ask"))
-=======
-        bid = ticker.get("bid")
-        ask = ticker.get("ask")
->>>>>>> origin/main
 
         rows.append(
             {
@@ -478,14 +433,11 @@ def get_markets_df(
                 "quote": market.get("quote"),
                 "settle": market.get("settle"),
                 "active": market.get("active"),
-<<<<<<< HEAD
                 "bid": bid,
                 "ask": ask,
                 "mid": calc_mid(bid, ask),
                 "last": safe_float(ticker.get("last")),
                 "spread_bps": calc_spread_bps(bid, ask),
-=======
->>>>>>> origin/main
                 "contract": market.get("contract"),
                 "linear": market.get("linear"),
                 "inverse": market.get("inverse"),
@@ -499,14 +451,6 @@ def get_markets_df(
                 "max_price": ((market.get("limits") or {}).get("price") or {}).get("max"),
                 "min_notional": ((market.get("limits") or {}).get("cost") or {}).get("min"),
                 "max_notional": ((market.get("limits") or {}).get("cost") or {}).get("max"),
-<<<<<<< HEAD
-=======
-                "last": ticker.get("last"),
-                "bid": bid,
-                "ask": ask,
-                "mid": calc_mid(bid, ask),
-                "spread_bps": calc_spread_bps(bid, ask),
->>>>>>> origin/main
                 "base_volume": ticker.get("baseVolume"),
                 "quote_volume": ticker.get("quoteVolume"),
                 "ticker_timestamp": ticker.get("timestamp"),
@@ -715,15 +659,11 @@ with st.expander("Market Discovery Settings", expanded=True):
         )
 
     with settings_row[1]:
-<<<<<<< HEAD
         include_tickers = checkbox_aligned(
             "Include Prices",
             value=True,
             key="include_tickers",
         )
-=======
-        include_tickers = checkbox_aligned("Include Tickers", value=False, key="include_tickers")
->>>>>>> origin/main
 
     with settings_row[2]:
         ticker_mode = st.selectbox(
@@ -734,10 +674,7 @@ with st.expander("Market Discovery Settings", expanded=True):
                 "Per-symbol fetchTicker",
             ],
             disabled=not include_tickers,
-<<<<<<< HEAD
             help="Auto uses bulk tickers only. It never falls back to per-market requests.",
-=======
->>>>>>> origin/main
         )
 
     with settings_row[3]:
@@ -921,30 +858,23 @@ with st.expander("Liquidity inputs", expanded=True):
         spot_only = checkbox_aligned("Require spot", value=True, key="spot_only")
 
 bps_bands = parse_bps_bands(bps_bands_raw)
-<<<<<<< HEAD
 MAX_LIQUIDITY_SYMBOLS = 100
 if len(selected_symbols) > MAX_LIQUIDITY_SYMBOLS:
     st.warning(
         f"Liquidity snapshots are limited to {MAX_LIQUIDITY_SYMBOLS} markets per run; "
         "narrow the filters or selection."
     )
-=======
->>>>>>> origin/main
 
 if not bps_bands:
     st.warning("Enter at least one valid positive bps band.")
 
 run_liquidity = st.button(
     "Run Liquidity Snapshot",
-<<<<<<< HEAD
     disabled=(
         not selected_symbols
         or not bps_bands
         or len(selected_symbols) > MAX_LIQUIDITY_SYMBOLS
     ),
-=======
-    disabled=(not selected_symbols or not bps_bands),
->>>>>>> origin/main
 )
 
 if run_liquidity:
@@ -990,8 +920,4 @@ if not liq_df.empty:
         "Liquidity",
         "download_liquidity_excel",
         comma_format_numeric=True,
-<<<<<<< HEAD
     )
-=======
-    )
->>>>>>> origin/main
