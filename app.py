@@ -57,11 +57,17 @@ market_lookup = st.Page(
     url_path="market-lookup",
 )
 
-nav = st.navigation([home, liq, liq_usat, hist, xaut_gold, market_lookup])
+usdt_pricing = st.Page(
+    "pages/usdt_pricing.py",
+    title="USDT Pricing",
+    url_path="usdt-pricing",
+)
+
+nav = st.navigation([home, liq, liq_usat, hist, xaut_gold, market_lookup, usdt_pricing])
 
 
 def top_nav():
-    c1, c2, c3, c4, c5, c6, spacer = st.columns([1.5, 1.7, 1.9, 1.5, 1.3, 1.5, 3.1])
+    c1, c2, c3, c4, c5, c6, c7, spacer = st.columns([1.5, 1.7, 1.9, 1.5, 1.3, 1.5, 1.2, 1.9])
     with c1:
         st.page_link(home, label="Market Data Viewer")
     with c2:
@@ -74,6 +80,8 @@ def top_nav():
         st.page_link(xaut_gold, label="XAUT vs. Gold")
     with c6:
         st.page_link(market_lookup, label="Market Lookup")
+    with c7:
+        st.page_link(usdt_pricing, label="USDT Pricing")
 
 top_nav()
 st.divider()
@@ -81,5 +89,4 @@ st.divider()
 # Run the selected page and stop here so app.py doesn't render anything else.
 nav.run()
 st.stop()
-
 
